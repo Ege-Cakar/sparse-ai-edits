@@ -1,0 +1,62 @@
+# Preliminary values, chosen only to check that the pipeline runs end to end.
+# Every experimental choice here is TBD; see docs/review.md.
+data_dir: data
+seed: 0
+
+corpus:
+  dataset: allenai/c4          # April 2019 Common Crawl snapshot, English
+  config: en
+  split: train
+  shuffle_buffer: 10000
+  n_docs: {train: 2000, val: 200, calib: 2000, test: 1000}   # doc-level splits, filled in this order
+  min_words: 8                 # sentences outside [min_words, max_words] are dropped from the doc
+  max_words: 60
+  min_doc_sentences: 8         # docs outside this range (counting kept sentences) are skipped
+  max_doc_sentences: 64
+
+edit:
+  splits: [train, val, test]   # calib is human-only (null for p-values)
+  target_strengths: [0.05, 0.1, 0.2, 0.3, 0.5, 0.75, 1.0]   # k = max(1, round(r * n_words))
+  reps: 2                      # edits per (sentence, editor, strength)
+  max_attempts: 3              # resample when output is empty, unchanged, or not one sentence
+  concurrency: 64
+  chunk_size: 5000
+  # TBD (docs/review.md). Each entry: name, model, api_key_env, heldout (bool), optional base_url_env
+  # (env var holding an OpenAI-compatible /v1 URL; omit for the OpenAI default), optional params (sampling kwargs).
+  editors: []
+
+lm_scores:                     # one forward pass of both models gives all three zero-shot scores
+  observer: tiiuae/falcon-7b
+  performer: tiiuae/falcon-7b-instruct
+  batch_size: 32
+  max_tokens: 128
+
+classifier:
+  edits_per_human: 1           # balanced training set: each human sentence + this many of its edits
+  finetune:
+    name: modernbert
+    model: answerdotai/ModernBERT-base
+    lr: 3.0e-5
+    epochs: 2
+    batch_size: 64
+    max_tokens: 128
+  embedding:
+    name: embedding_logreg
+    model: sentence-transformers/all-mpnet-base-v2
+    batch_size: 256
+
+calibrate:
+  length_bins: 10              # null quantile bins on n_words of the tested sentence
+
+phase:
+  modes: [window, whole]
+  window_n: [16, 32]
+  thetas: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]   # m = round(n^(1 - theta)) edited sentences
+  alpha: 0.05                  # level for global tests and Bonferroni recovery
+  bh_q: 0.1
+  hc_alpha0: 0.5
+  null_mc_reps: 100000         # iid-uniform Monte Carlo for test thresholds at each n
+  empirical_null_central: 0.5  # central fraction of z used for Efron central matching
+  sim_docs: 2000
+  sim_r: [0.1, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0]
+  plot_metrics: [reject_hc, exact_bonferroni]
