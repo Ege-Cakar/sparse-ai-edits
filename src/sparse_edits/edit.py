@@ -148,7 +148,13 @@ def main():
         out_path = path(cfg, "edits", f"{editor['name']}.jsonl")
         todo = todo_for(cfg, sents, editor, out_path)
         print(f"{editor['name']}: {len(todo)} requests to send")
-        if not args.dry_run:
+        if args.dry_run:
+            continue
+        if editor.get("type") == "mlm":   # local masked-infilling editor, no API
+            from .edit_mlm import Infiller, run
+            with open(out_path, "a") as f:
+                run(Infiller(editor["model"], editor.get("batch_size", 64)), todo, sents, editor, cfg["seed"], f)
+        else:
             asyncio.run(run_editor(cfg, editor, todo, out_path))
 
 

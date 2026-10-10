@@ -199,3 +199,44 @@ preliminary choice, where it lives, and what to check.
 48. Uncertainty. TBD.
     - Preliminary: one seed (0); no confidence intervals on power or recovery rates.
     - Review: binomial standard errors, or a bootstrap over documents.
+
+## Masked-infilling editor (`edit_mlm.py`)
+
+Pilot: 150 dev test sentences, target r in {0.1, 0.2, 0.3, 0.5}, one rep. Signal proxy: change in GPT-2 mean token
+log-prob, edited minus original (positive = more predictable, the direction expected of AI polishing). GPT-2 is a
+cheap stand-in for the Falcon scorers (item 22) and should be rechecked with them.
+
+| positions | r = 0.1 | 0.2 | 0.3 | 0.5 | share more predictable at r = 0.1 |
+|---|---|---|---|---|---|
+| uniform | -0.19 | -0.34 | -0.44 | -0.61 | 29% |
+| plausible | +0.05 | +0.03 | +0.06 | -0.01 | 59% |
+| mode_seeking | +0.18 | +0.22 | +0.23 | +0.12 | 74% |
+| mode_seeking + protect (default) | +0.19 | +0.22 | +0.17 | -0.04 | 81% |
+
+Standard errors are 0.02 to 0.06. k is exact for every row except protect at r >= 0.2 (97-99%), where a sentence
+has fewer editable words than k.
+
+49. Position choice. TBD.
+    - Preliminary: `positions: mode_seeking`, weight q_i / p_i (best substitute over original), `position_power: 1`.
+    - Review: uniform positions force changes where the original is the only good word, which lowers likelihood and
+      leaves grammar errors ("Police was alerted"): detectors would measure broken text, not AI style. mode_seeking
+      edits where the human chose an unusual word and swaps in the model's preferred one, the pull toward the mode
+      that the proposal's motivation describes. It also makes the positions non-uniform within a sentence, which is
+      the selection effect of item 43 at word level.
+50. Content protection. TBD.
+    - Preliminary: `protect: true`. Names (capitalized mid-sentence), multi-piece rare words, and words inside URLs or
+      e-mail addresses are never edited; a substitute may not repeat a 4+ letter word of the sentence.
+    - Review: without it mode_seeking targets rare content words first ("Loglines" -> "They", "scavengers" ->
+      "fish") and repeats words ("squid-spawning squid"); both change meaning, which AI polishing does not.
+51. Strength range for this editor. TBD.
+    - Review: the likelihood gain saturates by r = 0.3 and turns negative at r = 0.5. After the unusual words are
+      fixed, further forced changes are neutral or worse, so k/L is not monotone in signal strength. Suggest
+      target r <= 0.3 for this editor and placing cells by measured r_eff (item 46), not by target strength.
+      Per-sentence gain is uncorrelated with k/L and k/sqrt(L) (|corr| < 0.05) in the pilot.
+52. Fill rule. TBD.
+    - Preliminary: top-1 substitute, positions filled one at a time on the current text in random order, previous
+      and next eligible sentence as context (`context: true`). Deterministic given the seed, unlike API editors
+      (item 15).
+53. MLM. TBD.
+    - Preliminary: `roberta-base`. Cost: about 5 jobs/s on an Apple M-series GPU; the default config's test split
+      (about 300k jobs at 7 strengths x 2 reps) needs a CUDA GPU or a smaller grid.

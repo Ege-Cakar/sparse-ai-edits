@@ -23,7 +23,16 @@ edit:
   chunk_size: 5000
   # TBD (docs/review.md). Each entry: name, model, api_key_env, heldout (bool), optional base_url_env
   # (env var holding an OpenAI-compatible /v1 URL; omit for the OpenAI default), optional params (sampling kwargs).
-  editors: []
+  # type: mlm runs a local masked LM instead of an API (edit_mlm.py); exact k, no api_key_env needed.
+  editors:
+    - name: roberta_infill
+      type: mlm
+      model: roberta-base
+      heldout: false
+      positions: mode_seeking  # uniform | plausible | mode_seeking (docs/review.md item 49)
+      position_power: 1.0      # sharpness of the position weights; 0 = uniform
+      protect: true            # never edit names or multi-piece (rare) words
+      context: true            # previous and next eligible sentence as context
 
 lm_scores:                     # one forward pass of both models gives all three zero-shot scores
   observer: tiiuae/falcon-7b
