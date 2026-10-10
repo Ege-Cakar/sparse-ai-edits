@@ -31,3 +31,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sparse_edits"]
+
+[tool.pytest.ini_options]
+markers = ["slow: downloads a model (deselect with -m 'not slow')"]
