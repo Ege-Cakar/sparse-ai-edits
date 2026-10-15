@@ -199,3 +199,31 @@ preliminary choice, where it lives, and what to check.
 48. Uncertainty. TBD.
     - Preliminary: one seed (0); no confidence intervals on power or recovery rates.
     - Review: binomial standard errors, or a bootstrap over documents.
+
+## HC under dependence (`hc_variants.py`)
+
+Simulation at p = 32 (the window size), 4000 windows, level 0.05, theta = 0.5 (m = 6); notation as in Lecture 4.
+
+| Dependence | Statistic | Type I error with phase.py's i.i.d. threshold | Power (exact null threshold) |
+|---|---|---|---|
+| style factor, Sigma = 11' + I | plain HC | 0.120 | 0.16 at r = 0.5 |
+| | PC-adjusted HC, K = 1 | 0.048 | 0.47 at r = 0.5 |
+| neighbors, tridiagonal rho = 0.4 | plain HC | | 0.42 at r = 0.3 |
+| | innovated HC | | 0.64 at r = 0.3 |
+
+54. Estimating Sigma for a window. TBD.
+    - Preliminary: not wired into phase.py. `calib_window_z` is a stub: calib sentences are the conformal null,
+      so their own z-scores are not available. Options: split calib in two (null / covariance), or cross-fit.
+    - Review: sample covariance vs Toeplitz (stationary in sentence position) vs banded; direct inversion is
+      fine when the number of calib windows >> p, else a sparse precision estimator (`precision_sparse` stub).
+55. Number of principal components K. TBD.
+    - Preliminary: K passed explicitly (K = 1 for one per-document style factor, where PC adjustment equals
+      subtracting the window mean). `choose_K` is a stub: scree / eigen-gap, Marchenko-Pastur edge, or the K
+      that restores the null type I error on held-out calib windows.
+56. Thresholds after adjustment. TBD.
+    - Preliminary: `null_thresholds_dependent` simulates HC on the adjusted p-values under N(0, Sigma-hat)
+      (parametric bootstrap). The i.i.d. thresholds in phase.py over-reject whenever windows share a factor
+      (0.120 instead of 0.05 above), which also bears on items 35 and 38.
+57. Oracle recovery threshold. TBD.
+    - Preliminary: `threshold_select` implements S-hat = {X_j > sqrt(2 q* log p)}, q* from Lecture 3,
+      Theorem 2; it needs (theta, r), so in the empirical diagrams it is a benchmark at r = r_eff (item 39).
