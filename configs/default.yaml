@@ -21,7 +21,8 @@ edit:
   max_attempts: 3              # resample when output is empty, unchanged, or not one sentence
   concurrency: 64
   chunk_size: 5000
-  # TBD (docs/review.md). Each entry: name, model, api_key_env, heldout (bool), optional base_url_env
+  # TBD (docs/review.md). Each entry: name, model, api_key_env, heldout (bool), optional base_url_env, optional
+  # target_strengths (overrides the list above), optional train_classifier (default true),
   # (env var holding an OpenAI-compatible /v1 URL; omit for the OpenAI default), optional params (sampling kwargs).
   # type: mlm runs a local masked LM instead of an API (edit_mlm.py); exact k, no api_key_env needed.
   editors:
@@ -29,10 +30,12 @@ edit:
       type: mlm
       model: roberta-base
       heldout: false
+      train_classifier: false  # control arm, not AI style: never used to train the supervised detectors
+      target_strengths: [0.05, 0.1, 0.2, 0.3]   # overrides edit.target_strengths; signal reverses at r >= 0.5
       positions: mode_seeking  # uniform | plausible | mode_seeking (docs/review.md item 49)
       position_power: 1.0      # sharpness of the position weights; 0 = uniform
       protect: true            # never edit names or multi-piece (rare) words
-      context: true            # previous and next eligible sentence as context
+      context: false           # true adds the neighboring sentences; false matches the API editors (item 11)
 
 lm_scores:                     # one forward pass of both models gives all three zero-shot scores
   observer: tiiuae/falcon-7b

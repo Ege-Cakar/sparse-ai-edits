@@ -52,7 +52,8 @@ preliminary choice, where it lives, and what to check.
     - Review: the prompt defines what an "AI edit" is in this study. "Polishing" pushes toward AI style; a neutral
       "change k words" instruction gives a different signal. Several prompt styles are an option.
 11. Editing context. TBD.
-    - Preliminary: the editor sees only the sentence.
+    - Preliminary: the editor sees only the sentence; the masked-infilling editor matches this by default
+      (`context: false`, item 52), so editors differ in how they edit, not in what they see.
     - Review: real AI editing sees the paragraph or document, which changes word choice and consistency with neighbors.
 12. Strength definition and grid. TBD.
     - Preliminary: target r in {0.05, 0.1, 0.2, 0.3, 0.5, 0.75, 1.0}; k = max(1, round(r L)) (`edit.target_strengths`,
@@ -111,6 +112,7 @@ preliminary choice, where it lives, and what to check.
 26. Classifier training data. TBD.
     - Preliminary: train-split human sentences plus 1 random accepted edit of each (`classifier.edits_per_human`) from
       non-held-out editors, uniform over editors, strengths and reps; val is built the same way for early stopping.
+      Editors with `train_classifier: false` (the masked-infilling control, item 49) are excluded as well.
     - Review: mixing all strengths (full rewrites included) vs emphasizing weak edits; a balanced training set vs the
       sparse test setting.
 27. Fine-tuned classifier. TBD.
@@ -232,11 +234,12 @@ has fewer editable words than k.
     - Review: the likelihood gain saturates by r = 0.3 and turns negative at r = 0.5. After the unusual words are
       fixed, further forced changes are neutral or worse, so k/L is not monotone in signal strength. Suggest
       target r <= 0.3 for this editor and placing cells by measured r_eff (item 46), not by target strength.
+    - Preliminary: per-editor `target_strengths: [0.05, 0.1, 0.2, 0.3]` in the config, overriding the global grid.
       Per-sentence gain is uncorrelated with k/L and k/sqrt(L) (|corr| < 0.05) in the pilot.
 52. Fill rule. TBD.
-    - Preliminary: top-1 substitute, positions filled one at a time on the current text in random order, previous
-      and next eligible sentence as context (`context: true`). Deterministic given the seed, unlike API editors
-      (item 15).
+    - Preliminary: top-1 substitute, positions filled one at a time on the current text in random order, the
+      sentence alone (`context: false`, matching item 11). Deterministic given the seed, unlike API editors
+      (item 15). The pilot above used `context: true`; rerun it with the default before relying on its numbers.
 53. MLM. TBD.
     - Preliminary: `roberta-base`. Cost: about 5 jobs/s on an Apple M-series GPU; the default config's test split
       (about 300k jobs at 7 strengths x 2 reps) needs a CUDA GPU or a smaller grid.

@@ -3,7 +3,8 @@
 The control arm for edit strength. API editors are asked to "change exactly k words" and miss; here k is
 exact by construction, so k/L is known without a diff and the k/sqrt(L) vs k/L scaling can be tested directly.
 
-Per sentence (in its paragraph: previous and next eligible sentence as context):
+Per sentence (alone by default, like the API editors; with `context: true` the previous and next eligible
+sentence are added as context):
   1. Plausibility pass: mask each editable word once; q_i = MLM probability of the best substitute that
      differs from the original, p_i = probability of the original (its first BPE piece, an upper bound for
      multi-piece words). Shared by every (target_r, rep) job of the sentence.
@@ -124,8 +125,8 @@ def run(infiller, jobs, sents, cfg_editor, seed, out_file):
         by_sentence.setdefault(row.sentence_id, []).append((row, r, rep))
     ctx = sents.set_index(["doc_id", "sent_idx"]).text
     def neighbors(row):
-        return (ctx.get((row.doc_id, row.sent_idx - 1), "") if cfg_editor.get("context", True) else "",
-                ctx.get((row.doc_id, row.sent_idx + 1), "") if cfg_editor.get("context", True) else "")
+        return (ctx.get((row.doc_id, row.sent_idx - 1), "") if cfg_editor.get("context", False) else "",
+                ctx.get((row.doc_id, row.sent_idx + 1), "") if cfg_editor.get("context", False) else "")
 
     for sid, sjobs in tqdm(by_sentence.items(), desc=cfg_editor["name"]):
         row = sjobs[0][0]
