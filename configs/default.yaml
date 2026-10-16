@@ -21,9 +21,9 @@ edit:
   max_attempts: 3              # resample when output is empty, unchanged, or not one sentence
   concurrency: 64
   chunk_size: 5000
-  # TBD (docs/review.md). Each entry: name, model, api_key_env, heldout (bool), optional base_url_env, optional
-  # target_strengths (overrides the list above), optional train_classifier (default true),
-  # (env var holding an OpenAI-compatible /v1 URL; omit for the OpenAI default), optional params (sampling kwargs).
+  # TBD (docs/review.md). Each entry: name, model, api_key_env, heldout (bool), optional base_url_env
+  # (env var holding an OpenAI-compatible /v1 URL; omit for the OpenAI default), optional params (sampling kwargs),
+  # optional target_strengths (overrides the list above), optional train_classifier (default true).
   # type: mlm runs a local masked LM instead of an API (edit_mlm.py); exact k, no api_key_env needed.
   editors:
     - name: roberta_infill
