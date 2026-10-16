@@ -19,7 +19,9 @@ from . import cli, path
 
 def labeled(cfg, versions, split):
     v = versions[versions.split == split]
-    heldout = [e["name"] for e in cfg["edit"]["editors"] if e["heldout"]]
+    # Held-out editors test generalization; control editors (train_classifier: false, e.g. masked infilling)
+    # are not AI style, so neither is used to train the detector.
+    heldout = [e["name"] for e in cfg["edit"]["editors"] if e["heldout"] or not e.get("train_classifier", True)]
     edits = v[(v.editor != "human") & ~v.editor.isin(heldout)]
     edits = edits.groupby("sentence_id").sample(n=cfg["classifier"]["edits_per_human"], random_state=cfg["seed"])
     df = pd.concat([v[v.editor == "human"].assign(label=0), edits.assign(label=1)])

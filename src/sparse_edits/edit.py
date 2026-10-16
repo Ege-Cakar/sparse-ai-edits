@@ -85,7 +85,7 @@ def todo_for(cfg, sents, editor, out_path):
     e = cfg["edit"]
     done = {(d["sentence_id"], d["target_r"], d["rep"]) for d in read_jsonl(out_path)}
     return [(row, r, rep) for row in sents[sents.split.isin(e["splits"])].itertuples()
-            for r in e["target_strengths"] for rep in range(e["reps"])
+            for r in editor.get("target_strengths", e["target_strengths"]) for rep in range(e["reps"])
             if (row.sentence_id, r, rep) not in done]
 
 
