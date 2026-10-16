@@ -216,14 +216,20 @@ Simulation at p = 32 (the window size), 4000 windows, level 0.05, theta = 0.5 (m
       so their own z-scores are not available. Options: split calib in two (null / covariance), or cross-fit.
     - Review: sample covariance vs Toeplitz (stationary in sentence position) vs banded; direct inversion is
       fine when the number of calib windows >> p, else a sparse precision estimator (`precision_sparse` stub).
-55. Number of principal components K. TBD.
+55. Number of principal components K, and where PC adjustment applies. TBD.
+    - Finding: PC adjustment removes signal when edits are dense. Style factor sigma_a^2 = 0.25, r = 0.3, power of
+      plain vs PC-adjusted HC (K = 1): p = 16: theta 0.1: 0.54 vs 0.11, 0.3: 0.35 vs 0.18, 0.5: 0.21 vs 0.18,
+      0.7: 0.14 vs 0.16; p = 32: theta 0.1: 0.67 vs 0.14, 0.5: 0.25 vs 0.27, 0.7: 0.16 vs 0.20. Use it for
+      theta >= 0.5 only, or plot both.
     - Preliminary: K passed explicitly (K = 1 for one per-document style factor, where PC adjustment equals
       subtracting the window mean). `choose_K` is a stub: scree / eigen-gap, Marchenko-Pastur edge, or the K
       that restores the null type I error on held-out calib windows.
 56. Thresholds after adjustment. TBD.
     - Preliminary: `null_thresholds_dependent` simulates HC on the adjusted p-values under N(0, Sigma-hat)
       (parametric bootstrap). The i.i.d. thresholds in phase.py over-reject whenever windows share a factor
-      (0.120 instead of 0.05 above), which also bears on items 35 and 38.
+      (0.120 instead of 0.05 in the simulation above), which also bears on items 35 and 38.
+    - Review: the 0.120 is for a simulated factor of variance 1, a hypothesis about real text. Measure it first:
+      the theta = inf rows of phase.py give the actual type I error of plain HC on human-only windows.
 57. Oracle recovery threshold. TBD.
     - Preliminary: `threshold_select` implements S-hat = {X_j > sqrt(2 q* log p)}, q* from Lecture 3,
       Theorem 2; it needs (theta, r), so in the empirical diagrams it is a benchmark at r = r_eff (item 39).
