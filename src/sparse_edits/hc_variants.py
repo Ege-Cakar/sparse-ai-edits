@@ -15,8 +15,8 @@ move together. Two structures from Lecture 4, slide 6:
       -> PC adjustment: remove the top K principal components (Ke, Xue and Yang 2020).
   * Omega sparse (conditional dependence only between nearby sentences)
       -> innovated transform Y = Omega X (Hall and Jin 2010), which maximizes every site's SNR at once.
-Plain HC with i.i.d. Monte Carlo thresholds (phase.py) assumes Sigma = I; the factor case inflates its type I
-error, and both cases cost power.
+Plain HC with i.i.d. Monte Carlo thresholds (phase.py) assumes Sigma = I; a simulated factor inflates its type I
+error, and both cases cost power. PC adjustment helps only when edits are sparse (see pc_adjust).
 
 Status: the transforms, p-values and HC wrappers are implemented and tested on simulated Gaussian data.
 Stubs (NotImplementedError) mark what needs project data or a team decision: the calib-window z-scores,
@@ -101,7 +101,10 @@ def pc_adjust(X, Sigma, K):
 
     X-tilde = X - sum_k (xi_k' X) xi_k,   Sigma0-hat = Sigma-hat - sum_k lambda_k xi_k xi_k'.
     With a per-document style factor, Sigma = sigma_a^2 11' + I, xi_1 = 1/sqrt(p), and X-tilde is X minus its
-    window mean. Signal loss (xi_k' mu) xi_k is small when mu is sparse (slide 23)."""
+    window mean. Signal loss (xi_k' mu) xi_k is small when mu is sparse (slide 23), but NOT in the dense half of
+    the phase diagram: at theta = 0.1 most sentences are edited, the window mean is mostly signal, and removing
+    it costs most of the power (p = 16: 0.54 -> 0.11; docs/review.md item 55). Use it for theta >= 0.5, or
+    report it next to plain HC."""
     lam, xi = np.linalg.eigh(Sigma)
     lam, xi = lam[::-1][:K], xi[:, ::-1][:, :K]                     # K largest
     X = np.asarray(X, float)

@@ -39,6 +39,16 @@ def test_pc_adjusted_hc_more_powerful_under_style_factor():
     assert pc > brute + 0.15
 
 
+def test_pc_adjustment_loses_power_when_edits_are_dense():
+    # Lecture 4 slide 23 assumes eps is small. At theta = 0.1 (12 of 16 sentences edited) the window mean is
+    # mostly signal, so removing it hurts: PC adjustment is for the sparse half of the phase diagram only.
+    rng = np.random.default_rng(7)
+    Sigma = hv.factor_covariance(16, 0.25)
+    brute = power(Sigma, lambda X: hv.brute_force_pvalues(X, Sigma), 0.1, 0.3, rng)
+    pc = power(Sigma, lambda X: hv.pc_adjusted_pvalues(X, Sigma, 1), 0.1, 0.3, rng)
+    assert brute > pc + 0.25
+
+
 def test_innovated_hc_more_powerful_under_neighbor_dependence():
     rng = np.random.default_rng(3)
     Sigma = hv.tridiagonal_covariance(p, 0.4)
