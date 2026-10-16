@@ -180,13 +180,21 @@ preliminary choice, where it lives, and what to check.
       (`phase.thetas`).
     - Review: at small n several theta give the same m; exact m vs Bernoulli(eps) per sentence.
 43. Which sentences are edited. TBD.
-    - Preliminary: uniformly random positions.
-    - Review: real editing is not uniform; the proposal's propensity correction applies here as well as in training.
+    - Preliminary: exactly m positions, uniformly random among the window's sentences that have an accepted edit
+      (`stats.sample_truth_available`). Seeded per cell (`phase.cell_rng`: mode, n, editor, strength, theta), so
+      every detector sees the same windows and the same edited positions.
+    - Review: sentences whose edits were always rejected can never be edited, a mild selection (see item 45).
+      Real editing is not uniform; the proposal's propensity correction applies here as well as in training.
 44. Edit composition within a document. TBD.
     - Preliminary: one editor and one target strength per document; each sentence uses one fixed random rep per
-      (editor, strength), reused across theta.
+      (editor, strength), reused across theta, chosen by a hash of (seed, editor, strength, sentence, rep) so the
+      choice does not depend on which other rows exist.
 45. Missing versions. TBD.
-    - Preliminary: documents with any missing human or edited p-value are dropped from that (editor, strength) cell.
+    - Preliminary: documents with a missing human p-value are dropped. A missing edited p-value (rejected edit)
+      only removes that sentence from the candidates for editing; a document is dropped from a cell only if fewer
+      than m sentences have an edit, reported as `n_dropped`. The previous rule (drop on any missing edit) kept
+      about 0.91^16 = 22% of n = 16 windows at a 9% rejection rate.
+    - Review: report the rejection rate per cell next to power, since the remaining selection grows with it.
 46. Mapping onto the theory axes. TBD.
     - Preliminary: mu_eff = median z of edited test sentences; r_eff = max(mu_eff, 0)^2 / (2 log n). Only window mode
       is plotted, since whole mode has no single n.
@@ -195,7 +203,8 @@ preliminary choice, where it lives, and what to check.
       Options: mean vs median, or matching on single-test power.
 47. Gaussian simulation. TBD.
     - Preliminary: r in {0.1, ..., 4.0}, 2000 simulated documents per cell, at each window n (`phase.sim_r`,
-      `phase.sim_docs`).
+      `phase.sim_docs`), each cell with its own seed (`cell_rng`).
 48. Uncertainty. TBD.
-    - Preliminary: one seed (0); no confidence intervals on power or recovery rates.
+    - Preliminary: one base seed (0), with per-cell seeds derived from it; no confidence intervals on power or
+      recovery rates.
     - Review: binomial standard errors, or a bootstrap over documents.
