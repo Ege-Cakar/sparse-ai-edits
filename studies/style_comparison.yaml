@@ -1,0 +1,68 @@
+# Style comparison study: do cheaper editors make the same edits as a frontier editor?
+# Same sentences and requested strengths for every editor, 2 samples each (the second sample gives each editor's
+# self-similarity). Preliminary values; see docs/review.md for the open decisions they inherit.
+data_dir: data/style_comparison
+seed: 0
+
+corpus:
+  defaults:
+    shuffle_buffer: 1000       # smaller than the main config: this only needs a few documents per source
+    max_year: 2019
+    min_words: 8
+    max_words: 60
+    min_doc_sentences: 8
+    max_doc_sentences: 64
+  sources:
+    c4: {n_docs: {pool: 6}}
+    persuade: {n_docs: {pool: 6}}
+    ellipse: {n_docs: {pool: 6}}
+    xsum: {n_docs: {pool: 6}}
+    arxiv_abstracts: {n_docs: {pool: 10}, min_doc_sentences: 4}
+    openreview: {n_docs: {pool: 6}}
+    enron: {n_docs: {pool: 10}, min_doc_sentences: 4}
+    pg19: {n_docs: {pool: 3}, truncate: true, shuffle_buffer: 5}
+
+study:
+  per_source: 11               # sentences sampled per source and marked split "study"
+  min_words: 10                # sampled sentences have 10-40 words
+  max_words: 40
+  reference: gpt-6-astra-low   # the frontier editor others are compared against
+  bootstrap: 2000              # resamples of sentences for confidence intervals
+
+edit:
+  splits: [study]
+  target_strengths: [0.1, 0.3, 0.5]
+  reps: 2
+  max_attempts: 3
+  concurrency: 8
+  chunk_size: 500
+  batch_size: 50000
+  editors:                     # gpt-6.1-sol and gpt-6-astra accept reasoning_effort low at the lowest; no temperature
+    - name: gpt-6-luna-none    # is set, so every editor samples at its default
+      model: gpt-6-luna
+      base_url: https://go.apis.huit.harvard.edu/ais-openai-direct-comdev/v2/
+      api_key_env: OPENAI_TEST_KEY
+      auth_header: api-key
+      heldout: false
+      params: {reasoning_effort: none, max_completion_tokens: 2048}
+    - name: gpt-6-luna-low
+      model: gpt-6-luna
+      base_url: https://go.apis.huit.harvard.edu/ais-openai-direct-comdev/v2/
+      api_key_env: OPENAI_TEST_KEY
+      auth_header: api-key
+      heldout: false
+      params: {reasoning_effort: low, max_completion_tokens: 2048}
+    - name: gpt-6.1-sol-low
+      model: gpt-6.1-sol
+      base_url: https://go.apis.huit.harvard.edu/ais-openai-direct-comdev/v2/
+      api_key_env: OPENAI_TEST_KEY
+      auth_header: api-key
+      heldout: false
+      params: {reasoning_effort: low, max_completion_tokens: 2048}
+    - name: gpt-6-astra-low
+      model: gpt-6-astra
+      base_url: https://go.apis.huit.harvard.edu/ais-openai-direct-comdev/v2/
+      api_key_env: OPENAI_TEST_KEY
+      auth_header: api-key
+      heldout: false
+      params: {reasoning_effort: low, max_completion_tokens: 2048}

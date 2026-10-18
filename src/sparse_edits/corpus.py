@@ -1,35 +1,40 @@
-"""Stream C4, segment into sentences, keep eligible sentences, assign doc-level splits.
+"""Load every source in corpus.sources, segment into sentences, keep eligible sentences, assign doc-level splits.
 
-Writes sentences.parquet: sentence_id, doc_id, split, url, sent_idx, text, n_words.
-Docs come from a seeded shuffled stream and fill the splits in config order, so splits are disjoint by doc.
+Writes sentences.parquet: sentence_id, source, doc_id, doc_key, split, sent_idx, text, n_words.
+Within each source, docs come in a seeded random order and fill that source's splits in config order.
 """
 import pandas as pd
-from datasets import load_dataset
 from tqdm import tqdm
 
 from . import cli, path
+from .sources import SOURCES
 from .text import sentences, words
 
 
-def eligible_doc(doc, c):
-    sents = [s for s in sentences(doc["text"]) if c["min_words"] <= len(words(s)) <= c["max_words"]]
-    return (doc["url"], sents) if c["min_doc_sentences"] <= len(sents) <= c["max_doc_sentences"] else None
+def eligible(text, paragraph_sep, c):
+    """Sentences of a document within [min_words, max_words]; None if their count is outside
+    [min_doc_sentences, max_doc_sentences] (after keeping the first max_doc_sentences when truncate is set)."""
+    sents = [s for s in sentences(text, paragraph_sep) if c["min_words"] <= len(words(s)) <= c["max_words"]]
+    sents = sents[:c["max_doc_sentences"]] if c.get("truncate") else sents
+    return sents if c["min_doc_sentences"] <= len(sents) <= c["max_doc_sentences"] else None
 
 
 def main():
     cfg, _ = cli(__doc__)
-    c = cfg["corpus"]
-    stream = load_dataset(c["dataset"], c["config"], split=c["split"], streaming=True)
-    stream = stream.shuffle(seed=cfg["seed"], buffer_size=c["shuffle_buffer"])
-    docs = filter(None, (eligible_doc(d, c) for d in stream))
-    splits = [s for s, n in c["n_docs"].items() for _ in range(n)]
-    rows = [dict(doc_id=doc_id, split=split, url=url, sent_idx=i, text=s, n_words=len(words(s)))
-            for doc_id, (split, (url, sents)) in enumerate(zip(splits, tqdm(docs, total=len(splits))))
-            for i, s in enumerate(sents)]
+    rows, doc_id = [], 0
+    for name, overrides in cfg["corpus"]["sources"].items():
+        c = {"seed": cfg["seed"], "data_dir": cfg["data_dir"], **cfg["corpus"]["defaults"], **overrides}
+        load, paragraph_sep = SOURCES[name]
+        docs = ((key, s) for key, text in load(c) if (s := eligible(text, paragraph_sep, c)))
+        splits = [s for s, n in c["n_docs"].items() for _ in range(n)]
+        for split, (key, sents) in zip(splits, tqdm(docs, total=len(splits), desc=name)):
+            rows += [dict(source=name, doc_id=doc_id, doc_key=key, split=split, sent_idx=i, text=s, n_words=len(words(s)))
+                     for i, s in enumerate(sents)]
+            doc_id += 1
     df = pd.DataFrame(rows)
     df.insert(0, "sentence_id", range(len(df)))
     df.to_parquet(path(cfg, "sentences.parquet"), index=False)
-    print(df.groupby("split").agg(docs=("doc_id", "nunique"), sentences=("sentence_id", "size")))
+    print(df.groupby(["source", "split"]).agg(docs=("doc_id", "nunique"), sentences=("sentence_id", "size")))
 
 
 if __name__ == "__main__":

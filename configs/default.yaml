@@ -4,15 +4,22 @@ data_dir: data
 seed: 0
 
 corpus:
-  dataset: allenai/c4          # April 2019 Common Crawl snapshot, English
-  config: en
-  split: train
-  shuffle_buffer: 10000
-  n_docs: {train: 2000, val: 200, calib: 2000, test: 1000}   # doc-level splits, filled in this order
-  min_words: 8                 # sentences outside [min_words, max_words] are dropped from the doc
-  max_words: 60
-  min_doc_sentences: 8         # docs outside this range (counting kept sentences) are skipped
-  max_doc_sentences: 64
+  defaults:                    # per-source entries below override these
+    shuffle_buffer: 10000      # streaming sources: documents held in the seeded shuffle buffer
+    max_year: 2019             # sources with per-document dates keep documents from this year or earlier
+    min_words: 8               # sentences outside [min_words, max_words] are dropped from the doc
+    max_words: 60
+    min_doc_sentences: 8       # docs outside this range (counting kept sentences) are skipped
+    max_doc_sentences: 64
+  sources:                     # loaders in src/sparse_edits/sources.py; splits filled in the order listed
+    c4: {n_docs: {train: 2000, val: 200, calib: 2000, test: 1000}}
+    persuade: {n_docs: {train: 500, val: 50, calib: 500, test: 250}}
+    ellipse: {n_docs: {train: 500, val: 50, calib: 500, test: 250}}
+    xsum: {n_docs: {train: 500, val: 50, calib: 500, test: 250}}
+    arxiv_abstracts: {n_docs: {train: 500, val: 50, calib: 500, test: 250}, min_doc_sentences: 4}
+    openreview: {n_docs: {train: 500, val: 50, calib: 500, test: 250}}
+    enron: {n_docs: {train: 500, val: 50, calib: 500, test: 250}, min_doc_sentences: 4}
+    pg19: {n_docs: {train: 500, val: 50, calib: 500, test: 250}, truncate: true, shuffle_buffer: 200}
 
 edit:
   splits: [train, val, test]   # calib is human-only (null for p-values)
@@ -21,8 +28,10 @@ edit:
   max_attempts: 3              # resample when output is empty, unchanged, or not one sentence
   concurrency: 64
   chunk_size: 5000
-  # TBD (docs/review.md). Each entry: name, model, api_key_env, heldout (bool), optional base_url_env
-  # (env var holding an OpenAI-compatible /v1 URL; omit for the OpenAI default), optional params (sampling kwargs).
+  batch_size: 50000            # --batch: requests per Batch API job
+  # TBD (docs/review.md). Each entry: name, model, api_key_env, heldout (bool); optional base_url or base_url_env
+  # (an OpenAI-compatible URL, or the env var holding it; omit both for the OpenAI default); optional auth_header
+  # (header that carries the key, e.g. "api-key" for the HUIT gateway); optional params (sampling kwargs).
   editors: []
 
 lm_scores:                     # one forward pass of both models gives all three zero-shot scores
