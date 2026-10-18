@@ -17,10 +17,10 @@ def _punkt():
     nltk.download("punkt_tab", quiet=True)
 
 
-def sentences(text):
-    """Punkt sentences within each newline-separated paragraph."""
+def sentences(text, paragraph_sep="\n"):
+    """Punkt sentences within each paragraph; whitespace inside a paragraph (line wrapping) is collapsed."""
     _punkt()
-    return [s.strip() for para in text.split("\n") for s in nltk.sent_tokenize(para) if s.strip()]
+    return [s for para in text.split(paragraph_sep) for s in nltk.sent_tokenize(" ".join(para.split()))]
 
 
 def word_diff(original, edited):

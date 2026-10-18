@@ -1,8 +1,8 @@
 """Phase diagrams: Gaussian simulation at the same n, and empirical diagrams per detector.
 
 --what simulate   phase/gaussian_n{n}.parquet: z ~ N(mu 1[edited], 1), mu = sqrt(2 r log n), over the (theta, r) grid.
---what empirical  phase/<detector>.parquet: test-split documents (fixed-n windows and/or whole docs). For each
-                  (editor, target strength, theta), swap m = round(n^(1 - theta)) uniformly chosen sentences for
+--what empirical  phase/<detector>.parquet: test-split documents of each source (fixed-n windows and/or whole
+                  docs). For each (editor, target strength, theta), swap m = round(n^(1 - theta)) uniformly chosen sentences for
                   one fixed random edit of each, then evaluate with conformal p-values and, on the same draw,
                   with p-values recentered by an Efron empirical null fit on all z in the cell. theta = inf rows
                   have no edits (type I error). mu_eff = median z of edited test sentences.
@@ -62,7 +62,9 @@ def complete(*mats):
 
 
 def run_cell(cells, theta, cfg, rng):
-    """cells: list of (human p, edited p) matrices with equal n. Returns one row per null type."""
+    """cells: list of (human p, edited p) matrices with equal n. Returns one row per null type (none if no docs)."""
+    if not sum(len(h) for h, _ in cells):
+        return []
     draws = []
     for h, a in cells:
         truth = sample_truth(*h.shape, n_edited(h.shape[1], theta), rng)
@@ -81,9 +83,14 @@ def run_cell(cells, theta, cfg, rng):
 
 
 def empirical(cfg, detector, versions, rng):
-    c = cfg["phase"]
     pv = versions.merge(pd.read_parquet(path(cfg, "pvalues", f"{detector}.parquet")), on="version_id")
-    pv = pv[pv.split == "test"]
+    return pd.concat([empirical_source(cfg, versions[versions.source == s], pv[(pv.source == s) & (pv.split == "test")],
+                                       rng).assign(source=s) for s in sorted(versions.source.unique())]
+                     ).assign(detector=detector)
+
+
+def empirical_source(cfg, versions, pv, rng):
+    c = cfg["phase"]
     human_p = pv[pv.editor == "human"].set_index("sentence_id").p
     edits = pv[pv.editor != "human"].sample(frac=1, random_state=cfg["seed"])
     edits = edits.drop_duplicates(["editor", "target_r", "sentence_id"])          # one random rep per sentence
@@ -92,6 +99,9 @@ def empirical(cfg, detector, versions, rng):
     rows = []
     for mode, n in designs:
         groups = test_documents(versions, mode, n, rng)
+        if not groups:
+            print(f"{versions.source.iloc[0]}: no test documents with at least {n} sentences; {mode} n={n} skipped")
+            continue
         null_cells = [complete(lookup(human_p, ids), lookup(human_p, ids)) for ids in groups]
         for row in run_cell(null_cells, np.inf, cfg, rng):
             rows.append(dict(mode=mode, n=n, editor="none", target_r=0.0, **row))
@@ -103,7 +113,7 @@ def empirical(cfg, detector, versions, rng):
                 for row in run_cell(cells, theta, cfg, rng):
                     rows.append(dict(mode=mode, n=n, editor=editor, target_r=target_r, mu_eff=mu_eff,
                                      mean_actual_r=e.actual_r.mean(), **row))
-    return pd.DataFrame(rows).assign(detector=detector)
+    return pd.DataFrame(rows)
 
 
 SEQUENTIAL = LinearSegmentedColormap.from_list(
@@ -126,7 +136,7 @@ def plot(cfg):
             continue
         emp = pd.read_parquet(f)
         emp = emp[(emp["mode"] == "window") & (emp["null"] == "conformal") & np.isfinite(emp.theta)]
-        for (n, editor), e in emp.groupby(["n", "editor"]):
+        for (source, n, editor), e in emp.groupby(["source", "n", "editor"]):
             n = int(n)
             sim = pd.read_parquet(path(cfg, "phase", f"gaussian_n{n}.parquet"))
             r_eff = np.maximum(e.mu_eff, 0) ** 2 / (2 * np.log(n))
@@ -144,10 +154,10 @@ def plot(cfg):
                 for ax in (left, right):
                     draw_boundaries(ax, ymax)
                 left.set(title=f"Gaussian simulation, n = {n}", ylabel=r"$r$  ($\mu = \sqrt{2 r \log n}$)")
-                right.set_title(f"{f.stem}, editor {editor}, n = {n}")
+                right.set_title(f"{f.stem} on {source}, editor {editor}, n = {n}")
                 fig.legend(*left.get_legend_handles_labels(), loc="outside lower center", ncol=3, frameon=False)
                 fig.colorbar(dots, ax=[left, right], label=metric)
-                fig.savefig(path(cfg, "figures", f"{f.stem}_{editor}_n{n}_{metric}.png"), dpi=200)
+                fig.savefig(path(cfg, "figures", f"{f.stem}_{source}_{editor}_n{n}_{metric}.png"), dpi=200)
                 plt.close(fig)
 
 
@@ -160,8 +170,8 @@ def main():
             simulate(cfg, n, rng).to_parquet(path(cfg, "phase", f"gaussian_n{n}.parquet"), index=False)
     elif args.what == "empirical":
         versions = pd.read_parquet(path(cfg, "versions.parquet"),
-                                   columns=["version_id", "sentence_id", "doc_id", "sent_idx", "split", "editor",
-                                            "target_r", "actual_r"])
+                                   columns=["version_id", "sentence_id", "source", "doc_id", "sent_idx", "split",
+                                            "editor", "target_r", "actual_r"])
         for f in sorted(Path(cfg["data_dir"], "pvalues").glob("*.parquet")):
             empirical(cfg, f.stem, versions, rng).to_parquet(path(cfg, "phase", f.name), index=False)
     else:

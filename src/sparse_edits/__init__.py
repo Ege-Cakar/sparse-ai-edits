@@ -2,10 +2,12 @@ import argparse
 from pathlib import Path
 
 import yaml
+from dotenv import load_dotenv
 
 
 def cli(description, add_args=None):
-    """Parse --config plus step-specific args; returns (config dict, args)."""
+    """Load .env into the environment, parse --config plus step-specific args; returns (config dict, args)."""
+    load_dotenv()
     p = argparse.ArgumentParser(description=description)
     p.add_argument("--config", default="configs/default.yaml")
     if add_args:
