@@ -41,14 +41,21 @@ def toeplitz_covariance(X0, max_lag=None):
 
     Averages each diagonal of the sample covariance (p^2 parameters -> p), and bands it at max_lag
     (entries with |j - k| > max_lag set to 0). The natural estimator if correlation decays with distance
-    between sentences."""
+    between sentences. Banding can leave negative eigenvalues, so the result goes through psd_floor."""
     S = sample_covariance(X0)
     p = S.shape[0]
     lags = np.abs(np.subtract.outer(np.arange(p), np.arange(p)))
     acov = np.array([S[lags == h].mean() for h in range(p)])
     if max_lag is not None:
         acov[max_lag + 1:] = 0.0
-    return acov[lags]
+    return psd_floor(acov[lags])
+
+
+def psd_floor(S, floor=1e-6):
+    """Closest symmetric matrix (Frobenius norm) with every eigenvalue >= floor. Without it, an indefinite
+    estimate makes precision() and whitening_pvalues() return inf or nan."""
+    lam, U = np.linalg.eigh(S)
+    return (U * np.maximum(lam, floor)) @ U.T
 
 
 def precision(Sigma):
@@ -60,7 +67,7 @@ def precision(Sigma):
 def precision_sparse(X0, **kwargs):
     """Sparse precision estimate (graphical lasso, CLIME, ...): 'another chapter' in the lecture.
     TODO: needed only if the number of calib windows is not >> p; choose method and tuning."""
-    raise NotImplementedError("sparse precision estimation not chosen yet; see docs/review.md item 54")
+    raise NotImplementedError("sparse precision estimation not chosen yet; see docs/review.md item 58")
 
 
 def calib_window_z(cfg, detector, n):
@@ -70,7 +77,7 @@ def calib_window_z(cfg, detector, n):
     Using the same sentences both as the null and as X0 would understate dependence. Options: split calib into
     two halves (null for p-values / copies for Sigma), or cross-fit. Then take windows of n consecutive
     sentences, as phase.test_documents does."""
-    raise NotImplementedError("needs out-of-fold z-scores for calib sentences; see docs/review.md item 54")
+    raise NotImplementedError("needs out-of-fold z-scores for calib sentences; see docs/review.md item 58")
 
 
 # ----- Transforms and marginal p-values (Lecture 4, slide 9) ------------------------------------------------
@@ -103,7 +110,7 @@ def pc_adjust(X, Sigma, K):
     With a per-document style factor, Sigma = sigma_a^2 11' + I, xi_1 = 1/sqrt(p), and X-tilde is X minus its
     window mean. Signal loss (xi_k' mu) xi_k is small when mu is sparse (slide 23), but NOT in the dense half of
     the phase diagram: at theta = 0.1 most sentences are edited, the window mean is mostly signal, and removing
-    it costs most of the power (p = 16: 0.54 -> 0.11; docs/review.md item 55). Use it for theta >= 0.5, or
+    it costs most of the power (p = 16: 0.54 -> 0.11; docs/review.md item 59). Use it for theta >= 0.5, or
     report it next to plain HC."""
     lam, xi = np.linalg.eigh(Sigma)
     lam, xi = lam[::-1][:K], xi[:, ::-1][:, :K]                     # K largest
@@ -125,7 +132,7 @@ def choose_K(lam, n_copies):
     TODO: options are a scree / eigen-gap rule, eigenvalues above the Marchenko-Pastur edge
     (1 + sqrt(p / n_copies))^2 times the noise level, or the K that brings the null type I error of HC back to
     alpha on held-out calib windows. Until decided, pass K explicitly (K = 1 for a single style factor)."""
-    raise NotImplementedError("rule for K not chosen yet; see docs/review.md item 55")
+    raise NotImplementedError("rule for K not chosen yet; see docs/review.md item 59")
 
 
 # ----- HC on adjusted p-values (Lecture 4: "plug pi_1, ..., pi_p into HC") ---------------------------------
@@ -160,7 +167,7 @@ def q_star(theta, r):
 def threshold_select(X, theta, r):
     """S-hat(q*) = {j : X_j > sqrt(2 q* log p)}. An oracle rule: it needs (theta, r). In the empirical phase
     diagrams theta is known by design and r can be r_eff, which gives the ideal recovery benchmark
-    (docs/review.md item 39)."""
+    (docs/review.md item 45)."""
     X = np.asarray(X, float)
     p = X.shape[-1]
     return X > np.sqrt(2 * q_star(theta, r) * np.log(p))

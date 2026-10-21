@@ -74,6 +74,14 @@ def test_toeplitz_covariance_recovers_tridiagonal():
     assert np.abs(hv.toeplitz_covariance(X0, max_lag=3) - Sigma).max() < 0.03
 
 
+def test_banded_toeplitz_stays_positive_definite():
+    rng = np.random.default_rng(6)
+    Sigma = 0.9 ** np.abs(np.subtract.outer(np.arange(p), np.arange(p)))   # AR(1): banding at lag 1 is indefinite
+    X0 = rng.multivariate_normal(np.zeros(p), Sigma, size=5000)
+    S = hv.toeplitz_covariance(X0, max_lag=1)
+    assert np.linalg.eigvalsh(S).min() > 0 and np.isfinite(hv.precision(S)).all()
+
+
 def test_q_star_matches_theorem_2_and_threshold_recovers_strong_signal():
     assert np.isclose(hv.q_star(0.5, 2.0), (2.5 ** 2) / 8)                 # r > theta
     assert np.isclose(hv.q_star(0.5, 0.3), 0.5)                            # r < theta
