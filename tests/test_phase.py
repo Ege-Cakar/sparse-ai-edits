@@ -3,19 +3,25 @@ import pandas as pd
 import pytest
 
 from sparse_edits import phase
-from sparse_edits.stats import sample_truth_available
+from scipy.stats import norm
 
 
-def test_sample_truth_available_uses_only_available_positions():
+def test_place_edits_keeps_human_sentence_where_edit_rejected():
     rng = np.random.default_rng(0)
-    available = rng.random((2000, 16)) > 0.1
-    available[0, :14] = False                                  # only 2 available: too few for m = 3
-    truth, ok = sample_truth_available(available, 3, rng)
-    assert not ok[0] and ok[1:].all()
-    assert (truth[ok].sum(axis=1) == 3).all()
-    assert not (truth & ~available).any()
-    full = np.ones((20000, 8), bool)                           # uniform over positions when all are available
-    assert abs(sample_truth_available(full, 2, rng)[0].mean(axis=0) - 2 / 8).max() < 0.02
+    h, a = rng.random((5000, 8)), rng.random((5000, 8))
+    a[rng.random(a.shape) < 0.2] = np.nan                       # 20% of edits rejected
+    z, truth, kept = phase.place_edits(h, a, 3, rng)
+    assert not (truth & np.isnan(a)).any()                      # never marked edited where no edit exists
+    assert truth.sum() + kept == 3 * len(h)                     # each chosen sentence is edited or stays human
+    assert np.allclose(z, norm.isf(np.where(truth, a, h)))
+    assert abs(kept / (3 * len(h)) - 0.2) < 0.02                # positions ignore availability, so ~20% stay human
+
+
+def test_cell_seed_does_not_depend_on_number_types():
+    cfg = dict(seed=0)
+    python = phase.cell_rng(cfg, "truth", "c4", "window", 16, "ed", 0.1, 0.5).random()
+    numpy = phase.cell_rng(cfg, "truth", "c4", "window", np.int64(16), "ed", np.float64(0.1), np.float64(0.5)).random()
+    assert python == numpy
 
 
 def make_data(tmp_path, n_docs=60, n_sent=12, missing=0.1, seed=0):
@@ -50,17 +56,17 @@ def test_detectors_get_identical_draws_regardless_of_order(tmp_path):
     a_after = phase.empirical(cfg, "a", versions)
     pd.testing.assert_frame_equal(a_alone, a_after)
     b = phase.empirical(cfg, "b", versions)
-    cols = ["mode", "n", "editor", "target_r", "theta", "null", "n_docs", "n_dropped", "m_mean"]
+    cols = ["mode", "n", "editor", "target_r", "theta", "null", "n_docs", "n_kept_human", "m_mean"]
     conformal = lambda df: df[df["null"] == "conformal"][cols].reset_index(drop=True)   # empirical-null fit may skip
     pd.testing.assert_frame_equal(conformal(a_alone), conformal(b))                       # same docs, same edits
 
 
-def test_rejected_edits_cost_sentences_not_documents(tmp_path):
+def test_rejected_edits_keep_the_human_sentence_and_every_document(tmp_path):
     cfg, versions = make_data(tmp_path, missing=0.3)
     out = phase.empirical(cfg, "a", versions)
     edited = out[(out.editor == "ed") & (out["null"] == "conformal")].iloc[0]
-    # With both reps rejected for ~9% of sentences, requiring every sentence to have an edit (the old rule)
-    # would keep about 0.91^8 = 47% of windows; drawing among available sentences keeps nearly all.
-    assert edited.n_docs >= 0.95 * (edited.n_docs + edited.n_dropped)
-    assert edited.m_mean == pytest.approx(round(8 ** 0.5))
+    m = round(8 ** 0.5)
+    assert edited.n_docs == 60                                  # one window per document, none dropped
+    assert edited.m_mean + edited.n_kept_human / edited.n_docs == pytest.approx(m)
+    assert 0 < edited.n_kept_human < 0.2 * m * edited.n_docs    # both reps rejected for ~9% of sentences
     assert np.isfinite(out.mu_eff.dropna()).all()

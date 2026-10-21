@@ -6,8 +6,9 @@
                   one fixed random edit of each, then evaluate with conformal p-values and, on the same draw,
                   with p-values recentered by an Efron empirical null fit on all z in the cell. theta = inf rows
                   have no edits (type I error). mu_eff = median z of edited test sentences.
-                  The m edited sentences are drawn among sentences that have an accepted edit, so a rejected
-                  edit drops one candidate sentence, not the document (n_dropped counts documents with < m).
+                  The m positions are drawn among all sentences; a chosen sentence whose edit was rejected
+                  stays human, so that document has fewer than m edits (n_kept_human counts these). No
+                  document is dropped for a rejected edit.
                   Every random draw is seeded by its cell (cell_rng), never by call order, so all detectors
                   see the same windows and the same edited positions (common random numbers).
 --what plot       figures/: for window mode, Gaussian power next to empirical cells placed at
@@ -26,13 +27,20 @@ from scipy.stats import norm
 
 from . import cli, path
 from .stats import (almost_full_recovery_boundary, detection_boundary, empirical_null, evaluate,
-                    exact_recovery_boundary, n_edited, null_thresholds, sample_truth, sample_truth_available)
+                    exact_recovery_boundary, n_edited, null_thresholds, sample_truth)
+
+
+def plain(x):
+    """x as a plain Python value, so numpy and Python numbers of equal value hash to the same seed."""
+    if isinstance(x, (int, np.integer)):
+        return int(x)
+    return float(x) if isinstance(x, (float, np.floating)) else str(x)
 
 
 def cell_rng(cfg, *key):
     """Generator seeded by what a draw should depend on, not by call order: every detector gets the same draws,
     and adding or renaming a detector leaves the others' results unchanged."""
-    return np.random.default_rng([cfg["seed"], zlib.crc32(repr(key).encode())])
+    return np.random.default_rng([cfg["seed"], zlib.crc32(repr(tuple(map(plain, key))).encode())])
 
 
 def outcomes(p, truth, cfg):
@@ -68,24 +76,30 @@ def lookup(series, ids):
 
 
 def complete_human(h, a):
-    """Drop documents (rows) with a missing human p-value. Missing edited p-values are allowed; run_cell only
-    draws edited positions where one exists."""
+    """Drop documents (rows) with a missing human p-value. Missing edited p-values are allowed (see place_edits)."""
     ok = ~np.isnan(h).any(axis=1)
     return h[ok], a[ok]
+
+
+def place_edits(h, a, m, rng):
+    """Choose m positions per document uniformly at random. A chosen sentence takes its edited p-value; if its
+    edit was rejected (NaN), the human sentence stays in place. Returns (z, truth of the sentences actually
+    edited, number of chosen sentences left human)."""
+    chosen = sample_truth(*h.shape, m, rng)
+    truth = chosen & ~np.isnan(a)
+    return norm.isf(np.where(truth, a, h)), truth, int((chosen & ~truth).sum())
 
 
 def run_cell(cells, theta, cfg, rng):
     """cells: list of (human p, edited p) matrices with equal n; edited p may be NaN where no edit was accepted.
     Returns one row per null type (none if no docs)."""
-    draws, n_dropped = [], 0
-    for h, a in cells:
-        truth, ok = sample_truth_available(~np.isnan(a), n_edited(h.shape[1], theta), rng)
-        n_dropped += int((~ok).sum())
-        h, a, truth = h[ok], a[ok], truth[ok]
-        draws.append((norm.isf(np.where(truth, a, h)), truth))
-    if not sum(len(t) for _, t in draws):
-        print(f"theta={theta}: no document has enough accepted edits; cell skipped")
+    if not sum(len(h) for h, _ in cells):
         return []
+    draws, kept_human = [], 0
+    for h, a in cells:
+        z, truth, kept = place_edits(h, a, n_edited(h.shape[1], theta), rng)
+        draws.append((z, truth))
+        kept_human += kept
     fit = empirical_null(np.concatenate([z.ravel() for z, _ in draws]), cfg["phase"]["empirical_null_central"])
     rows = []
     for null, (delta0, sigma0) in [("conformal", (0.0, 1.0)), ("empirical", fit)]:
@@ -94,24 +108,25 @@ def run_cell(cells, theta, cfg, rng):
             continue
         outs = [outcomes(norm.sf((z - delta0) / sigma0), truth, cfg) for z, truth in draws]
         rows.append(dict(theta=theta, null=null, delta0=delta0, sigma0=sigma0, n_docs=sum(len(t) for _, t in draws),
-                         n_dropped=n_dropped, m_mean=np.concatenate([t.sum(axis=1) for _, t in draws]).mean(),
+                         n_kept_human=kept_human, m_mean=np.concatenate([t.sum(axis=1) for _, t in draws]).mean(),
                          **{k: np.concatenate([o[k] for o in outs]).mean() for k in outs[0]}))
     return rows
 
 
 def rep_key(cfg, df):
     """Deterministic per-row random key: the same rep is chosen for a sentence whatever other rows exist."""
-    return [zlib.crc32(repr((cfg["seed"], e, r, s, k)).encode())
+    return [zlib.crc32(repr((cfg["seed"], str(e), float(r), int(s), int(k))).encode())
             for e, r, s, k in zip(df.editor, df.target_r, df.sentence_id, df.rep)]
 
 
 def empirical(cfg, detector, versions):
     pv = versions.merge(pd.read_parquet(path(cfg, "pvalues", f"{detector}.parquet")), on="version_id")
-    return pd.concat([empirical_source(cfg, versions[versions.source == s], pv[(pv.source == s) & (pv.split == "test")])
-                      .assign(source=s) for s in sorted(versions.source.unique())]).assign(detector=detector)
+    test = pv[pv.split == "test"]
+    return pd.concat([empirical_source(cfg, s, versions[versions.source == s], test[test.source == s]).assign(source=s)
+                      for s in sorted(versions.source.unique())]).assign(detector=detector)
 
 
-def empirical_source(cfg, versions, pv):
+def empirical_source(cfg, source, versions, pv):
     c = cfg["phase"]
     human_p = pv[pv.editor == "human"].set_index("sentence_id").p
     edits = pv[pv.editor != "human"]
@@ -121,19 +136,19 @@ def empirical_source(cfg, versions, pv):
     designs += [("whole", np.nan)] if "whole" in c["modes"] else []
     rows = []
     for mode, n in designs:
-        groups = test_documents(versions, mode, n, cell_rng(cfg, "window", mode, n))
+        groups = test_documents(versions, mode, n, cell_rng(cfg, "window", source, mode, n))
         if not groups:
-            print(f"{versions.source.iloc[0]}: no test documents with at least {n} sentences; {mode} n={n} skipped")
+            print(f"{source}: no test documents with at least {n} sentences; {mode} n={n} skipped")
             continue
         null_cells = [complete_human(lookup(human_p, ids), lookup(human_p, ids)) for ids in groups]
-        for row in run_cell(null_cells, np.inf, cfg, cell_rng(cfg, "truth", mode, n, "none", 0.0, np.inf)):
+        for row in run_cell(null_cells, np.inf, cfg, cell_rng(cfg, "truth", source, mode, n, "none", 0.0, np.inf)):
             rows.append(dict(mode=mode, n=n, editor="none", target_r=0.0, **row))
         for (editor, target_r), e in edits.groupby(["editor", "target_r"]):
             alt_p = e.set_index("sentence_id").p
             cells = [complete_human(lookup(human_p, ids), lookup(alt_p, ids)) for ids in groups]
             mu_eff = np.nanmedian(np.concatenate([norm.isf(a).ravel() for _, a in cells]))
             for theta in c["thetas"]:
-                rng = cell_rng(cfg, "truth", mode, n, editor, target_r, theta)
+                rng = cell_rng(cfg, "truth", source, mode, n, editor, target_r, theta)
                 for row in run_cell(cells, theta, cfg, rng):
                     rows.append(dict(mode=mode, n=n, editor=editor, target_r=target_r, mu_eff=mu_eff,
                                      mean_actual_r=e.actual_r.mean(), **row))

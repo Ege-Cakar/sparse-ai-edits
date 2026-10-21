@@ -252,21 +252,21 @@ preliminary choice, where it lives, and what to check.
       (`phase.thetas`).
     - Review: at small n several theta give the same m; exact m vs Bernoulli(eps) per sentence.
 49. Which sentences are edited. TBD.
-    - Preliminary: exactly m positions, uniformly random among the window's sentences that have an accepted edit
-      (`stats.sample_truth_available`). Seeded per cell (`phase.cell_rng`: mode, n, editor, strength, theta), so
-      every detector sees the same windows and the same edited positions.
-    - Review: sentences whose edits were always rejected can never be edited, a mild selection (see item 51).
-      Real editing is not uniform; the proposal's propensity correction applies here as well as in training.
+    - Preliminary: m positions, uniformly random among all of the window's sentences (`phase.place_edits`). A
+      chosen sentence whose edit was rejected stays human (decided 2026-10-21 by Ege), so that document has fewer
+      than m edits; metrics use the sentences actually edited. Seeded per cell (`phase.cell_rng`: source, mode,
+      n, editor, strength, theta), so every detector sees the same windows and the same edited positions.
+    - Review: real editing is not uniform; the proposal's propensity correction applies here as well as in training.
 50. Edit composition within a document. TBD.
     - Preliminary: one editor and one target strength per document; each sentence uses one fixed random rep per
       (editor, strength), reused across theta, chosen by a hash of (seed, editor, strength, sentence, rep) so the
       choice does not depend on which other rows exist.
 51. Missing versions. TBD.
-    - Preliminary: documents with a missing human p-value are dropped. A missing edited p-value (rejected edit)
-      only removes that sentence from the candidates for editing; a document is dropped from a cell only if fewer
-      than m sentences have an edit, reported as `n_dropped`. The previous rule (drop on any missing edit) kept
-      about 0.91^16 = 22% of n = 16 windows at a 9% rejection rate.
-    - Review: report the rejection rate per cell next to power, since the remaining selection grows with it.
+    - Preliminary: documents with a missing human p-value are dropped. A rejected edit never drops a document or a
+      sentence: the human sentence stays in place, counted as `n_kept_human`. The first rule (drop a document on
+      any missing edit) kept about 0.91^16 = 22% of n = 16 windows at a 9% rejection rate.
+    - Review: report `n_kept_human` per cell next to power; at high rejection rates a cell's realized m falls
+      below its nominal m.
 52. Mapping onto the theory axes. TBD.
     - Preliminary: mu_eff = median z of edited test sentences; r_eff = max(mu_eff, 0)^2 / (2 log n). Only window mode
       is plotted, since whole mode has no single n.
