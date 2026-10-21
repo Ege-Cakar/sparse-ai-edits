@@ -79,17 +79,6 @@ def sample_truth(docs, n, m, rng):
     return rng.random((docs, n)).argsort(axis=1) < m
 
 
-def sample_truth_available(available, m, rng):
-    """Boolean (docs, n) with exactly m True per row, uniform over the available (True) positions of each row.
-
-    Returns (truth, ok); ok marks rows with at least m available positions. Rows that are not ok are not usable.
-    An unavailable position (e.g. its edit was rejected) costs that one sentence, not the whole document.
-    """
-    keys = np.where(available, rng.random(available.shape), np.inf)
-    truth = keys.argsort(axis=1).argsort(axis=1) < m
-    return truth & available, available.sum(axis=1) >= m
-
-
 def n_edited(n, theta):
     return np.round(np.asarray(n) ** (1 - theta)).astype(int)
 
