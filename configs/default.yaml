@@ -33,7 +33,7 @@ edit:
   # (an OpenAI-compatible URL, or the env var holding it; omit both for the OpenAI default); optional auth_header
   # (header that carries the key, e.g. "api-key" for the HUIT gateway); optional params (sampling kwargs);
   # optional target_strengths (overrides the list above); optional train_classifier (default true).
-  # type: mlm runs a local masked LM instead of an API (edit_mlm.py); exact k, no api_key_env needed.
+  # type: mlm is the optional masked-LM control editor (edit_mlm.py), configured in configs/mlm_control.yaml.
   editors: []
 
 lm_scores:                     # one forward pass of both models gives all three zero-shot scores
@@ -44,6 +44,7 @@ lm_scores:                     # one forward pass of both models gives all three
 
 classifier:
   edits_per_human: 1           # balanced training set: each human sentence + this many of its edits
+  exclude_editors: [roberta_infill]   # never train on these: the optional masked-LM control (configs/mlm_control.yaml)
   finetune:
     name: modernbert
     model: answerdotai/ModernBERT-base

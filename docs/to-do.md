@@ -19,6 +19,10 @@ setting is final. Open decisions are in
 - [x] Length-binned conformal p-values against a per-source null (`calibrate.py`) and Efron empirical null (`stats.py`).
 - [x] Global tests (HC, HC+, min-p, Stouffer) with Monte Carlo thresholds; BH and Bonferroni recovery (`stats.py`).
 - [x] Gaussian simulation, empirical phase diagrams per source in window and whole-document modes, plots (`phase.py`).
+- [x] HC under dependence: innovated and PC-adjusted HC, Monte Carlo thresholds under a covariance, the oracle
+      recovery threshold (`hc_variants.py`, Rui). Not yet used by `phase.py`.
+- [x] Optional masked-LM control editor with exact k (`edit_mlm.py`, `configs/mlm_control.yaml`, Rui); runs only
+      when named with `--editors`.
 - [x] Unit tests for the text and statistics helpers (`tests/`).
 
 ## To implement
@@ -38,7 +42,7 @@ Weeks 1-3: detection
 - [ ] Downstream steps with the real detectors on RunPod (the multi-source plumbing ran once with tiny stand-in models).
 - [ ] Check the third-party mirrors, PERSUADE/ELLIPSE overlap, and release license terms (review.md items 3-5).
 - [ ] RunPod setup: environment, storage for `data_dir`, how each step is launched.
-- [ ] PC-adjusted HC (method still to be specified).
+- [ ] Wire innovated / PC-adjusted HC into `phase.py`: covariance from calib windows, choice of K (review items 58-61).
 - [ ] Pangram and any other closed-source detectors.
 - [ ] The week-2 "estimators" (which quantities to estimate, e.g. the edited fraction, still to be specified).
 - [ ] Confidence intervals on power and recovery rates.

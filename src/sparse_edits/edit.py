@@ -215,6 +215,12 @@ def main():
     for editor in cfg["edit"]["editors"]:
         if args.editors and editor["name"] not in args.editors:
             continue
+        if editor.get("type") == "mlm":   # the optional local control editor: only when named explicitly
+            if editor["name"] not in (args.editors or []):
+                print(f"{editor['name']}: masked-LM control editor, runs only when named with --editors")
+                continue
+            if args.batch:
+                raise SystemExit("--batch is for API editors; the masked-LM editor runs locally")
         out_path = path(cfg, "edits", f"{editor['name']}.jsonl")
         if args.batch and not args.dry_run:
             run_batches(cfg, editor, sents.set_index("sentence_id", drop=False), [], out_path)  # pending batches

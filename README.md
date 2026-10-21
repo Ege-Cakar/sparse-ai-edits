@@ -12,7 +12,8 @@ Progress: [docs/to-do.md](docs/to-do.md).
 
 - `configs/default.yaml`: every setting.
 - `src/sparse_edits/`: one module per step: `corpus` → `edit` → `score_lm` / `score_classifier` → `calibrate` → `phase`.
-  `sources.py` loads the human-text datasets; `text.py` and `stats.py` are shared helpers.
+  `sources.py` loads the human-text datasets; `text.py` and `stats.py` are shared helpers; `hc_variants.py` has
+  HC under dependence; `edit_mlm.py` is the optional masked-LM control editor (`configs/mlm_control.yaml`).
 - `studies/`: side studies with their own configs (`style_comparison`: which cheap editor edits like a frontier one).
 - `tests/`: unit tests.
 

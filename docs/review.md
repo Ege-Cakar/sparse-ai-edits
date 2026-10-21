@@ -143,7 +143,8 @@ preliminary choice, where it lives, and what to check.
     - Review: alternatives normalize by max(L_original, L_edited) or measure at the token or character level.
 24. Diff labels. TBD.
     - Preliminary: `ai_word_mask` marks inserted and substituted words of the edited sentence; deletions leave no mark.
-25. Strength used in the analysis. TBD.
+25. Strength used in the analysis. Partly decided 2026-10-21 by Ege: large editors track k closely enough;
+    exact k is not required.
     - Preliminary: phase diagrams group edits by target strength; the measured strength is recorded per cell
       (`mean_actual_r`).
     - Review: editors do not hit k exactly. Options: target strength, binned measured strength, or resampling edits
@@ -332,6 +333,10 @@ Simulation at p = 32 (the window size), 4000 windows, level 0.05, theta = 0.5 (m
 
 ## Masked-infilling editor (`edit_mlm.py`)
 
+Optional control arm, run only when explicitly requested (`configs/mlm_control.yaml`, `--editors roberta_infill`).
+Decided 2026-10-21 by Ege: it sits outside the LLM-editing setting, and large editors track k closely enough
+that exact k is not needed for the main study.
+
 Pilot: 150 dev test sentences, target r in {0.1, 0.2, 0.3, 0.5}, one rep. Signal proxy: change in GPT-2 mean token
 log-prob, edited minus original (positive = more predictable, the direction expected of AI polishing). GPT-2 is a
 cheap stand-in for the Falcon scorers (item 28) and should be rechecked with them.
@@ -369,5 +374,5 @@ has fewer editable words than k.
       sentence alone (`context: false`, matching item 16). Deterministic given the seed, unlike API editors
       (item 20). The pilot above used `context: true`; rerun it with the default before relying on its numbers.
 66. MLM. TBD.
-    - Preliminary: `roberta-base`. Cost: about 5 jobs/s on an Apple M-series GPU; the default config's test split
+    - Preliminary: `roberta-base` (125M parameters). Cost: about 5 jobs/s on an Apple M-series GPU; a test split
       (about 300k jobs at 7 strengths x 2 reps) needs a CUDA GPU or a smaller grid.
