@@ -31,7 +31,9 @@ edit:
   batch_size: 50000            # --batch: requests per Batch API job
   # TBD (docs/review.md). Each entry: name, model, api_key_env, heldout (bool); optional base_url or base_url_env
   # (an OpenAI-compatible URL, or the env var holding it; omit both for the OpenAI default); optional auth_header
-  # (header that carries the key, e.g. "api-key" for the HUIT gateway); optional params (sampling kwargs).
+  # (header that carries the key, e.g. "api-key" for the HUIT gateway); optional params (sampling kwargs);
+  # optional target_strengths (overrides the list above); optional train_classifier (default true).
+  # type: mlm runs a local masked LM instead of an API (edit_mlm.py); exact k, no api_key_env needed.
   editors: []
 
 lm_scores:                     # one forward pass of both models gives all three zero-shot scores
