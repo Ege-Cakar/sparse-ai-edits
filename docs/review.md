@@ -102,7 +102,8 @@ preliminary choice, where it lives, and what to check.
       "change k words" instruction gives a different signal. Several prompt styles are an option. One fixed template
       can also become an artifact that classifiers learn.
 16. Editing context. TBD.
-    - Preliminary: the editor sees only the sentence.
+    - Preliminary: the editor sees only the sentence; the masked-infilling editor matches this by default
+      (`context: false`, item 65), so editors differ in how they edit, not in what they see.
     - Review: real AI editing sees the paragraph or document, which changes word choice and consistency with neighbors.
 17. Strength definition and grid. TBD.
     - Preliminary: target r in {0.05, 0.1, 0.2, 0.3, 0.5, 0.75, 1.0}; k = max(1, round(r L)) (`edit.target_strengths`,
@@ -175,6 +176,7 @@ preliminary choice, where it lives, and what to check.
     - Preliminary: train-split human sentences of all sources pooled, plus 1 random accepted edit of each
       (`classifier.edits_per_human`) from non-held-out editors, uniform over editors, strengths and reps; val is built
       the same way for early stopping.
+      Editors with `train_classifier: false` (the masked-infilling control, item 62) are excluded as well.
     - Review: mixing all strengths (full rewrites included) vs emphasizing weak edits; a balanced training set vs the
       sparse test setting; pooled vs per-source classifiers, and holding out whole sources to test transfer.
 33. Fine-tuned classifier. TBD.
@@ -327,3 +329,45 @@ Simulation at p = 32 (the window size), 4000 windows, level 0.05, theta = 0.5 (m
 61. Oracle recovery threshold. TBD.
     - Preliminary: `threshold_select` implements S-hat = {X_j > sqrt(2 q* log p)}, q* from Lecture 3,
       Theorem 2; it needs (theta, r), so in the empirical diagrams it is a benchmark at r = r_eff (item 45).
+
+## Masked-infilling editor (`edit_mlm.py`)
+
+Pilot: 150 dev test sentences, target r in {0.1, 0.2, 0.3, 0.5}, one rep. Signal proxy: change in GPT-2 mean token
+log-prob, edited minus original (positive = more predictable, the direction expected of AI polishing). GPT-2 is a
+cheap stand-in for the Falcon scorers (item 28) and should be rechecked with them.
+
+| positions | r = 0.1 | 0.2 | 0.3 | 0.5 | share more predictable at r = 0.1 |
+|---|---|---|---|---|---|
+| uniform | -0.19 | -0.34 | -0.44 | -0.61 | 29% |
+| plausible | +0.05 | +0.03 | +0.06 | -0.01 | 59% |
+| mode_seeking | +0.18 | +0.22 | +0.23 | +0.12 | 74% |
+| mode_seeking + protect (default) | +0.19 | +0.22 | +0.17 | -0.04 | 81% |
+
+Standard errors are 0.02 to 0.06. k is exact for every row except protect at r >= 0.2 (97-99%), where a sentence
+has fewer editable words than k.
+
+62. Position choice. TBD.
+    - Preliminary: `positions: mode_seeking`, weight q_i / p_i (best substitute over original), `position_power: 1`.
+    - Review: uniform positions force changes where the original is the only good word, which lowers likelihood and
+      leaves grammar errors ("Police was alerted"): detectors would measure broken text, not AI style. mode_seeking
+      edits where the human chose an unusual word and swaps in the model's preferred one, the pull toward the mode
+      that the proposal's motivation describes. It also makes the positions non-uniform within a sentence, which is
+      the selection effect of item 49 at word level.
+63. Content protection. TBD.
+    - Preliminary: `protect: true`. Names (capitalized mid-sentence), multi-piece rare words, and words inside URLs or
+      e-mail addresses are never edited; a substitute may not repeat a 4+ letter word of the sentence.
+    - Review: without it mode_seeking targets rare content words first ("Loglines" -> "They", "scavengers" ->
+      "fish") and repeats words ("squid-spawning squid"); both change meaning, which AI polishing does not.
+64. Strength range for this editor. TBD.
+    - Review: the likelihood gain saturates by r = 0.3 and turns negative at r = 0.5. After the unusual words are
+      fixed, further forced changes are neutral or worse, so k/L is not monotone in signal strength. Suggest
+      target r <= 0.3 for this editor and placing cells by measured r_eff (item 52), not by target strength.
+    - Preliminary: per-editor `target_strengths: [0.05, 0.1, 0.2, 0.3]` in the config, overriding the global grid.
+      Per-sentence gain is uncorrelated with k/L and k/sqrt(L) (|corr| < 0.05) in the pilot.
+65. Fill rule. TBD.
+    - Preliminary: top-1 substitute, positions filled one at a time on the current text in random order, the
+      sentence alone (`context: false`, matching item 16). Deterministic given the seed, unlike API editors
+      (item 20). The pilot above used `context: true`; rerun it with the default before relying on its numbers.
+66. MLM. TBD.
+    - Preliminary: `roberta-base`. Cost: about 5 jobs/s on an Apple M-series GPU; the default config's test split
+      (about 300k jobs at 7 strengths x 2 reps) needs a CUDA GPU or a smaller grid.

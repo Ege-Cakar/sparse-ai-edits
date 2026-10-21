@@ -105,7 +105,7 @@ def todo_for(cfg, sents, editor, out_path):
     e = cfg["edit"]
     done = {(d["sentence_id"], d["target_r"], d["rep"]) for d in read_jsonl(out_path)}
     return [(row, r, rep) for row in sents[sents.split.isin(e["splits"])].itertuples()
-            for r in e["target_strengths"] for rep in range(e["reps"])
+            for r in editor.get("target_strengths", e["target_strengths"]) for rep in range(e["reps"])
             if (row.sentence_id, r, rep) not in done]
 
 
@@ -226,7 +226,11 @@ def main():
         print(f"{editor['name']}: {len(todo)} requests to send")
         if args.dry_run:
             continue
-        if args.batch:
+        if editor.get("type") == "mlm":   # local masked-infilling editor, no API
+            from .edit_mlm import Infiller, run
+            with open(out_path, "a") as f:
+                run(Infiller(editor["model"], editor.get("batch_size", 64)), todo, sents, editor, cfg["seed"], f)
+        elif args.batch:
             run_batches(cfg, editor, sents.set_index("sentence_id", drop=False),
                         [(row.sentence_id, r, rep, 1) for row, r, rep in todo], out_path)
         else:
