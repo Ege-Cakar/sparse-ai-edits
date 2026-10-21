@@ -6,9 +6,14 @@
                   one fixed random edit of each, then evaluate with conformal p-values and, on the same draw,
                   with p-values recentered by an Efron empirical null fit on all z in the cell. theta = inf rows
                   have no edits (type I error). mu_eff = median z of edited test sentences.
+                  The m edited sentences are drawn among sentences that have an accepted edit, so a rejected
+                  edit drops one candidate sentence, not the document (n_dropped counts documents with < m).
+                  Every random draw is seeded by its cell (cell_rng), never by call order, so all detectors
+                  see the same windows and the same edited positions (common random numbers).
 --what plot       figures/: for window mode, Gaussian power next to empirical cells placed at
                   r_eff = max(mu_eff, 0)^2 / (2 log n), with the theoretical boundaries on both.
 """
+import zlib
 from itertools import product
 from pathlib import Path
 
@@ -21,7 +26,13 @@ from scipy.stats import norm
 
 from . import cli, path
 from .stats import (almost_full_recovery_boundary, detection_boundary, empirical_null, evaluate,
-                    exact_recovery_boundary, n_edited, null_thresholds, sample_truth)
+                    exact_recovery_boundary, n_edited, null_thresholds, sample_truth, sample_truth_available)
+
+
+def cell_rng(cfg, *key):
+    """Generator seeded by what a draw should depend on, not by call order: every detector gets the same draws,
+    and adding or renaming a detector leaves the others' results unchanged."""
+    return np.random.default_rng([cfg["seed"], zlib.crc32(repr(key).encode())])
 
 
 def outcomes(p, truth, cfg):
@@ -30,9 +41,10 @@ def outcomes(p, truth, cfg):
     return evaluate(p, truth, thresholds, c["alpha"], c["hc_alpha0"], c["bh_q"])
 
 
-def simulate(cfg, n, rng):
+def simulate(cfg, n):
     c, rows = cfg["phase"], []
     for theta, r in product(c["thetas"], c["sim_r"]):
+        rng = cell_rng(cfg, "simulate", n, theta, r)
         truth = sample_truth(c["sim_docs"], n, n_edited(n, theta), rng)
         z = rng.standard_normal(truth.shape) + np.sqrt(2 * r * np.log(n)) * truth
         out = outcomes(norm.sf(z), truth, cfg)
@@ -55,20 +67,25 @@ def lookup(series, ids):
     return series.reindex(ids.ravel()).to_numpy().reshape(ids.shape)
 
 
-def complete(*mats):
-    """Drop documents (rows) with a missing p-value in any of the matrices."""
-    ok = ~np.any([np.isnan(m).any(axis=1) for m in mats], axis=0)
-    return tuple(m[ok] for m in mats)
+def complete_human(h, a):
+    """Drop documents (rows) with a missing human p-value. Missing edited p-values are allowed; run_cell only
+    draws edited positions where one exists."""
+    ok = ~np.isnan(h).any(axis=1)
+    return h[ok], a[ok]
 
 
 def run_cell(cells, theta, cfg, rng):
-    """cells: list of (human p, edited p) matrices with equal n. Returns one row per null type (none if no docs)."""
-    if not sum(len(h) for h, _ in cells):
-        return []
-    draws = []
+    """cells: list of (human p, edited p) matrices with equal n; edited p may be NaN where no edit was accepted.
+    Returns one row per null type (none if no docs)."""
+    draws, n_dropped = [], 0
     for h, a in cells:
-        truth = sample_truth(*h.shape, n_edited(h.shape[1], theta), rng)
+        truth, ok = sample_truth_available(~np.isnan(a), n_edited(h.shape[1], theta), rng)
+        n_dropped += int((~ok).sum())
+        h, a, truth = h[ok], a[ok], truth[ok]
         draws.append((norm.isf(np.where(truth, a, h)), truth))
+    if not sum(len(t) for _, t in draws):
+        print(f"theta={theta}: no document has enough accepted edits; cell skipped")
+        return []
     fit = empirical_null(np.concatenate([z.ravel() for z, _ in draws]), cfg["phase"]["empirical_null_central"])
     rows = []
     for null, (delta0, sigma0) in [("conformal", (0.0, 1.0)), ("empirical", fit)]:
@@ -77,39 +94,46 @@ def run_cell(cells, theta, cfg, rng):
             continue
         outs = [outcomes(norm.sf((z - delta0) / sigma0), truth, cfg) for z, truth in draws]
         rows.append(dict(theta=theta, null=null, delta0=delta0, sigma0=sigma0, n_docs=sum(len(t) for _, t in draws),
-                         m_mean=np.concatenate([t.sum(axis=1) for _, t in draws]).mean(),
+                         n_dropped=n_dropped, m_mean=np.concatenate([t.sum(axis=1) for _, t in draws]).mean(),
                          **{k: np.concatenate([o[k] for o in outs]).mean() for k in outs[0]}))
     return rows
 
 
-def empirical(cfg, detector, versions, rng):
+def rep_key(cfg, df):
+    """Deterministic per-row random key: the same rep is chosen for a sentence whatever other rows exist."""
+    return [zlib.crc32(repr((cfg["seed"], e, r, s, k)).encode())
+            for e, r, s, k in zip(df.editor, df.target_r, df.sentence_id, df.rep)]
+
+
+def empirical(cfg, detector, versions):
     pv = versions.merge(pd.read_parquet(path(cfg, "pvalues", f"{detector}.parquet")), on="version_id")
-    return pd.concat([empirical_source(cfg, versions[versions.source == s], pv[(pv.source == s) & (pv.split == "test")],
-                                       rng).assign(source=s) for s in sorted(versions.source.unique())]
-                     ).assign(detector=detector)
+    return pd.concat([empirical_source(cfg, versions[versions.source == s], pv[(pv.source == s) & (pv.split == "test")])
+                      .assign(source=s) for s in sorted(versions.source.unique())]).assign(detector=detector)
 
 
-def empirical_source(cfg, versions, pv, rng):
+def empirical_source(cfg, versions, pv):
     c = cfg["phase"]
     human_p = pv[pv.editor == "human"].set_index("sentence_id").p
-    edits = pv[pv.editor != "human"].sample(frac=1, random_state=cfg["seed"])
+    edits = pv[pv.editor != "human"]
+    edits = edits.assign(key=rep_key(cfg, edits)).sort_values("key")
     edits = edits.drop_duplicates(["editor", "target_r", "sentence_id"])          # one random rep per sentence
     designs = [("window", n) for n in c["window_n"]] if "window" in c["modes"] else []
     designs += [("whole", np.nan)] if "whole" in c["modes"] else []
     rows = []
     for mode, n in designs:
-        groups = test_documents(versions, mode, n, rng)
+        groups = test_documents(versions, mode, n, cell_rng(cfg, "window", mode, n))
         if not groups:
             print(f"{versions.source.iloc[0]}: no test documents with at least {n} sentences; {mode} n={n} skipped")
             continue
-        null_cells = [complete(lookup(human_p, ids), lookup(human_p, ids)) for ids in groups]
-        for row in run_cell(null_cells, np.inf, cfg, rng):
+        null_cells = [complete_human(lookup(human_p, ids), lookup(human_p, ids)) for ids in groups]
+        for row in run_cell(null_cells, np.inf, cfg, cell_rng(cfg, "truth", mode, n, "none", 0.0, np.inf)):
             rows.append(dict(mode=mode, n=n, editor="none", target_r=0.0, **row))
         for (editor, target_r), e in edits.groupby(["editor", "target_r"]):
             alt_p = e.set_index("sentence_id").p
-            cells = [complete(lookup(human_p, ids), lookup(alt_p, ids)) for ids in groups]
-            mu_eff = np.median(np.concatenate([norm.isf(a).ravel() for _, a in cells]))
+            cells = [complete_human(lookup(human_p, ids), lookup(alt_p, ids)) for ids in groups]
+            mu_eff = np.nanmedian(np.concatenate([norm.isf(a).ravel() for _, a in cells]))
             for theta in c["thetas"]:
+                rng = cell_rng(cfg, "truth", mode, n, editor, target_r, theta)
                 for row in run_cell(cells, theta, cfg, rng):
                     rows.append(dict(mode=mode, n=n, editor=editor, target_r=target_r, mu_eff=mu_eff,
                                      mean_actual_r=e.actual_r.mean(), **row))
@@ -164,16 +188,15 @@ def plot(cfg):
 def main():
     cfg, args = cli(__doc__, lambda p: p.add_argument("--what", choices=["simulate", "empirical", "plot"],
                                                       required=True))
-    rng = np.random.default_rng(cfg["seed"])
     if args.what == "simulate":
         for n in cfg["phase"]["window_n"]:
-            simulate(cfg, n, rng).to_parquet(path(cfg, "phase", f"gaussian_n{n}.parquet"), index=False)
+            simulate(cfg, n).to_parquet(path(cfg, "phase", f"gaussian_n{n}.parquet"), index=False)
     elif args.what == "empirical":
         versions = pd.read_parquet(path(cfg, "versions.parquet"),
                                    columns=["version_id", "sentence_id", "source", "doc_id", "sent_idx", "split",
-                                            "editor", "target_r", "actual_r"])
+                                            "editor", "target_r", "rep", "actual_r"])
         for f in sorted(Path(cfg["data_dir"], "pvalues").glob("*.parquet")):
-            empirical(cfg, f.stem, versions, rng).to_parquet(path(cfg, "phase", f.name), index=False)
+            empirical(cfg, f.stem, versions).to_parquet(path(cfg, "phase", f.name), index=False)
     else:
         plot(cfg)
 
