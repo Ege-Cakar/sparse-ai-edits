@@ -1,0 +1,27 @@
+# Optional masked-LM control editor (RoBERTa infilling with exact k, src/sparse_edits/edit_mlm.py).
+# Outside the main setting, which uses LLM editors; run it only when explicitly wanted, by naming it:
+#   uv run python -m sparse_edits.edit --config configs/mlm_control.yaml --editors roberta_infill
+# It runs a local model, so run it on RunPod. It shares data_dir with configs/default.yaml, so its edits join the
+# dataset at the next --consolidate; classifier.exclude_editors in the default config keeps them out of classifier
+# training. Preliminary values; see docs/review.md items 62-66.
+data_dir: data
+seed: 0
+
+edit:
+  splits: [train, val, test]
+  target_strengths: [0.05, 0.1, 0.2, 0.3]   # likelihood gain reverses at r >= 0.5 for this editor (item 64)
+  reps: 2
+  max_attempts: 3
+  concurrency: 64
+  chunk_size: 5000
+  batch_size: 50000
+  editors:
+    - name: roberta_infill
+      type: mlm
+      model: roberta-base
+      heldout: false
+      train_classifier: false  # control arm, not AI style
+      positions: mode_seeking  # uniform | plausible | mode_seeking (docs/review.md item 62)
+      position_power: 1.0      # sharpness of the position weights; 0 = uniform
+      protect: true            # never edit names or multi-piece (rare) words (item 63)
+      context: false           # true adds the neighboring sentences; false matches the API editors (item 16)
