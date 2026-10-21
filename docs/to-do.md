@@ -25,7 +25,8 @@ setting is final. Open decisions are in
 
 Weeks 1-3: detection
 - [ ] Settle every item in review.md.
-- [ ] Choose editors and serve the open ones with vLLM on RunPod.
+- [ ] Choose editors and serve the open ones with vLLM on RunPod (editor list partly decided, review.md item 14).
+- [ ] Per-editor coverage in `edit.py`: full test split at every strength, a sampled set of training edits.
 - [x] Trial run with `gpt-6-luna` (reasoning off) through the HUIT gateway
       (`https://go.apis.huit.harvard.edu/ais-openai-direct-comdev/v2/`, key `OPENAI_TEST_KEY` sent as the `api-key`
       header, $10/month quota) on the 8-source smoke corpus: 13,055 edits, about $0.18 of quota.

@@ -84,11 +84,16 @@ preliminary choice, where it lives, and what to check.
 
 ## Editing
 
-14. Editor models. TBD.
-    - Preliminary: none configured (`edit.editors: []`); the entry format is in the config comment.
-    - Review: which open models (vLLM on RunPod) and closed models, spread from 2024-era to current frontier; which
-      are held out from classifier training (`heldout`). An editor from the same family as the zero-shot scoring
-      models (item 28) confounds those detectors.
+14. Editor models. Partly decided 2026-10-18 by Ege.
+    - Training editors: gpt-6-luna (reasoning off), gpt-6.1-sol (reasoning low), Claude Haiku / Sonnet / Opus 5.5,
+      Kimi K3, GLM 5.3, DeepSeek V4.1 Flash (1017). gpt-6-astra gets a 5,000-edit test-split check paired with sol's
+      edits. Qwen 3.5 (397B-A17B) is the proposed held-out editor. Not yet in the config (`edit.editors: []`).
+    - Preliminary: an open 8B-class editor on RunPod for 2024-era diversity.
+    - Review: whether to hold out Qwen 3.5 (an unseen lab) and also hold out other versions of training editors (an
+      idea from Ege) to test version generalization. Open-weight models through OpenRouter can be served by
+      different providers, some with quantized weights: pin a provider and record it. Turn reasoning off where the
+      API allows (Kimi K3 untested). An editor from the same family as the zero-shot scoring models (item 28)
+      confounds those detectors.
 15. Prompt. TBD.
     - Preliminary: system message "You are an AI writing assistant that edits people's writing."; the user message
       asks to polish the sentence, change exactly k of its n words, keep the meaning, keep one sentence, and reply
@@ -105,9 +110,14 @@ preliminary choice, where it lives, and what to check.
     - Review: k >= 1 puts a floor of 1/L on the strength of short sentences, so a low target means different things
       at different L.
 18. Edits per sentence. TBD.
-    - Preliminary: 2 reps per (sentence, editor, strength), same for every split (`edit.reps`).
-    - Review: the proposal aims for up to about 100 versions per sentence in the detection set; train and test may
-      need different counts. `edit --dry-run` prints request counts.
+    - Preliminary (budget plan, 2026-10-18): on the test split, every editor edits every sentence at all 7 strengths
+      once. On train/val, each training editor edits a random sample of 50,000 (sentence, strength) pairs. A second
+      sample (decided 2026-10-19 by Ege): the cheap editors redo the whole test split; the expensive ones (Sonnet,
+      sol, Opus, Kimi K3, Qwen 3.5, astra) redo one shared subset of 5,000 test pairs. Not yet
+      implemented: `edit.py` currently edits every sentence of `edit.splits` `edit.reps` times for every editor.
+    - Review: the proposal aims for up to about 100 versions per sentence in the detection set (10 editors x 7
+      strengths gives 70); whether training samples are drawn independently per editor or shared across editors
+      (same sentences and strengths, a paired design). `edit --dry-run` prints request counts.
 19. Which splits are edited. TBD.
     - Preliminary: train, val, test; calib stays human-only (`edit.splits`).
 20. Sampling parameters and reasoning effort. TBD.
@@ -160,7 +170,8 @@ preliminary choice, where it lives, and what to check.
 31. Perplexity feature. TBD.
     - Preliminary: mean token log-prob under the observer. No BOS token is prepended, so the first token is never
       scored (same as the reference implementations). Inputs are truncated at 128 tokens.
-32. Classifier training data. TBD.
+32. Classifier training data. Partly decided 2026-10-18 by Ege: every editor except the held-out ones goes into
+    classifier training, frontier models included; generalization is tested on held-out editors.
     - Preliminary: train-split human sentences of all sources pooled, plus 1 random accepted edit of each
       (`classifier.edits_per_human`) from non-held-out editors, uniform over editors, strengths and reps; val is built
       the same way for early stopping.
@@ -174,7 +185,13 @@ preliminary choice, where it lives, and what to check.
     - Review: semantic embedders are trained to ignore paraphrase, so they may be a poor fit for edit detection; a
       style embedding may match the proposal better.
 35. Closed-source detectors. TBD.
-    - Preliminary: not implemented (Pangram).
+    - Preliminary: not implemented. Plan for Pangram: score whole phase-diagram documents (billing is per started
+      100-word block per text, so single sentences are uneconomical), on a subset of cells, plus human-only documents
+      for its null; budgeted in the local budget doc.
+    - Review: Pangram returns overlapping windows with scores and character ranges, not sentence scores, so a
+      sentence score has to be derived (max or mean over windows covering the sentence). Its scores on edited
+      documents depend on the neighboring sentences, unlike every other detector here, which scores sentences in
+      isolation (item 27). Which editor and cells to spend it on.
 
 ## Calibration
 
