@@ -24,6 +24,12 @@ def test_cell_seed_does_not_depend_on_number_types():
     assert python == numpy
 
 
+def test_summarize_intervals():
+    row = phase.summarize(dict(reject=np.array([True] * 30 + [False] * 70), err=np.arange(100.0)), 0.95)
+    assert row["reject"] == 0.3 and row["reject_lo"] < 0.3 < row["reject_hi"] < 0.4
+    assert row["err"] == 49.5 and np.isclose(row["err_hi"] - 49.5, 1.96 * np.arange(100.0).std(ddof=1) / 10, rtol=1e-3)
+
+
 def make_data(tmp_path, n_docs=60, n_sent=12, missing=0.1, seed=0):
     rng = np.random.default_rng(seed)
     rows, vid = [], 0
@@ -45,7 +51,7 @@ def make_data(tmp_path, n_docs=60, n_sent=12, missing=0.1, seed=0):
             tmp_path / "pvalues" / f"{det}.parquet")
     cfg = dict(data_dir=str(tmp_path), seed=0, phase=dict(
         modes=["window"], window_n=[8], thetas=[0.5], alpha=0.05, bh_q=0.1, hc_alpha0=0.5, null_mc_reps=2000,
-        empirical_null_central=0.5))
+        empirical_null_central=0.5, storey_lambda=0.5, ci_level=0.95))
     return cfg, versions
 
 

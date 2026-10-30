@@ -1,4 +1,4 @@
-"""p-values, global tests, support recovery, and the rare/weak phase boundaries.
+"""p-values, global tests, support recovery, edited-fraction estimates, and the rare/weak phase boundaries.
 
 Matrices are (documents, n sentences). Global test statistics are oriented so larger = more evidence of edits.
 """
@@ -60,9 +60,11 @@ def global_tests(alpha0):
 
 @cache
 def null_thresholds(n, alpha, alpha0, reps, seed):
-    """Level-alpha critical values of each global test under iid Uniform(0, 1) p-values, by Monte Carlo."""
+    """Level-alpha critical values of each global test under iid Uniform(0, 1) p-values, by Monte Carlo, plus
+    "hc_all": HC over every i (alpha0 = 1), the bounding constant of eps_lower."""
     p = np.random.default_rng(seed).random((reps, n))
-    return {name: np.quantile(f(p), 1 - alpha) for name, f in global_tests(alpha0).items()}
+    out = {name: np.quantile(f(p), 1 - alpha) for name, f in global_tests(alpha0).items()}
+    return out | {"hc_all": np.quantile(hc(p, 1.0), 1 - alpha)}
 
 
 def bh(p, q):
@@ -74,6 +76,37 @@ def bh(p, q):
     return np.argsort(order, axis=1) < k[:, None]
 
 
+def eps_storey(p, lam):
+    """Storey (2002) point estimate of the edited fraction, row-wise: 1 - #{p > lam} / ((1 - lam) n), clipped to
+    [0, 1]. Biased down by eps P(edited p > lam) / (1 - lam) when edits are weak, and up by the clip at 0 when n
+    is small (about +0.01 at n = 16, eps = 1/4)."""
+    return np.clip(1 - (p > lam).mean(axis=1) / (1 - lam), 0, 1)
+
+
+def eps_lower(p, c):
+    """Meinshausen & Rice (2006) lower confidence bound for the edited fraction with the HC bounding function,
+    row-wise: max over i of (i/n - p_(i) - c sqrt(p_(i)(1 - p_(i)) / n)) / (1 - p_(i)), floored at 0.
+
+    With c the level-alpha null quantile of HC over all i (null_thresholds "hc_all"), P(bound <= true fraction)
+    >= 1 - alpha, exactly 1 - alpha with no edits; the bound is positive iff that HC rejects. Edited p-values
+    only lower F_n(t) - t relative to (1 - t), and c is taken at n rather than at the number of human
+    sentences, which assumes the null quantile of HC does not shrink with n.
+    """
+    n = p.shape[1]
+    ps, i = np.sort(p, axis=1), np.arange(1, n + 1)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        b = (i / n - ps - c * np.sqrt(ps * (1 - ps) / n)) / (1 - ps)
+    return np.clip(np.where(np.isfinite(b), b, 0).max(axis=1), 0, 1)
+
+
+def wilson(k, n, level):
+    """Wilson score interval for a binomial proportion k / n."""
+    z, phat = norm.isf((1 - level) / 2), k / n
+    center = (phat + z ** 2 / (2 * n)) / (1 + z ** 2 / n)
+    half = z * np.sqrt(phat * (1 - phat) / n + z ** 2 / (4 * n ** 2)) / (1 + z ** 2 / n)
+    return center - half, center + half
+
+
 def sample_truth(docs, n, m, rng):
     """Boolean (docs, n) with exactly m True per row at uniformly random positions."""
     return rng.random((docs, n)).argsort(axis=1) < m
@@ -83,11 +116,15 @@ def n_edited(n, theta):
     return np.round(np.asarray(n) ** (1 - theta)).astype(int)
 
 
-def evaluate(p, truth, thresholds, alpha, alpha0, q):
-    """Per-document outcomes: rejection by each global test, and Hamming error / m and exact recovery for
-    BH(q) and Bonferroni(alpha) support estimates."""
+def evaluate(p, truth, thresholds, alpha, alpha0, q, lam):
+    """Per-document outcomes: rejection by each global test; Hamming error / m and exact recovery for BH(q) and
+    Bonferroni(alpha) support estimates; the true edited fraction m / n, its Storey estimate and squared error,
+    and the Meinshausen-Rice lower bound and whether it covers."""
     out = {f"reject_{name}": f(p) > thresholds[name] for name, f in global_tests(alpha0).items()}
     m = truth.sum(axis=1)
+    eps, storey, lower = m / p.shape[1], eps_storey(p, lam), eps_lower(p, thresholds["hc_all"])
+    out |= dict(eps_true=eps, eps_storey=storey, sqerr_eps_storey=(storey - eps) ** 2, eps_lower=lower,
+                cover_eps_lower=lower <= eps)
     for name, est in {"bh": bh(p, q), "bonferroni": p <= alpha / p.shape[1]}.items():
         errors = (est != truth).sum(axis=1)
         out[f"hamming_{name}"] = errors / np.maximum(m, 1)
