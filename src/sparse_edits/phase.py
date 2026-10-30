@@ -13,6 +13,10 @@
                   see the same windows and the same edited positions (common random numbers).
 --what plot       figures/: for window mode, Gaussian power next to empirical cells placed at
                   r_eff = max(mu_eff, 0)^2 / (2 log n), with the theoretical boundaries on both.
+
+Every metric column is a mean over documents with a level-ci_level interval in <metric>_lo, <metric>_hi
+(summarize): Wilson for 0/1 outcomes, normal otherwise. Edited-fraction columns: eps_true (m / n actually
+edited), eps_storey and its squared error, eps_lower (Meinshausen-Rice bound) and cover_eps_lower.
 """
 import zlib
 from itertools import product
@@ -27,7 +31,7 @@ from scipy.stats import norm
 
 from . import cli, path
 from .stats import (almost_full_recovery_boundary, detection_boundary, empirical_null, evaluate,
-                    exact_recovery_boundary, n_edited, null_thresholds, sample_truth)
+                    exact_recovery_boundary, n_edited, null_thresholds, sample_truth, wilson)
 
 
 def plain(x):
@@ -46,7 +50,21 @@ def cell_rng(cfg, *key):
 def outcomes(p, truth, cfg):
     c = cfg["phase"]
     thresholds = null_thresholds(p.shape[1], c["alpha"], c["hc_alpha0"], c["null_mc_reps"], cfg["seed"])
-    return evaluate(p, truth, thresholds, c["alpha"], c["hc_alpha0"], c["bh_q"])
+    return evaluate(p, truth, thresholds, c["alpha"], c["hc_alpha0"], c["bh_q"], c["storey_lambda"])
+
+
+def summarize(out, level):
+    """Mean of each per-document outcome and a level interval over documents (independent: one window or whole
+    document each): Wilson for booleans, mean +- z sd / sqrt(N) otherwise."""
+    row, z = {}, norm.isf((1 - level) / 2)
+    for k, v in out.items():
+        if v.dtype == bool:
+            lo, hi = wilson(v.sum(), len(v), level)
+        else:
+            half = z * v.std(ddof=1) / np.sqrt(len(v)) if len(v) > 1 else np.nan
+            lo, hi = v.mean() - half, v.mean() + half
+        row |= {k: v.mean(), f"{k}_lo": lo, f"{k}_hi": hi}
+    return row
 
 
 def simulate(cfg, n):
@@ -56,7 +74,7 @@ def simulate(cfg, n):
         truth = sample_truth(c["sim_docs"], n, n_edited(n, theta), rng)
         z = rng.standard_normal(truth.shape) + np.sqrt(2 * r * np.log(n)) * truth
         out = outcomes(norm.sf(z), truth, cfg)
-        rows.append(dict(n=n, theta=theta, r=r, m=int(n_edited(n, theta)), **{k: v.mean() for k, v in out.items()}))
+        rows.append(dict(n=n, theta=theta, r=r, m=int(n_edited(n, theta)), **summarize(out, c["ci_level"])))
     return pd.DataFrame(rows)
 
 
@@ -109,7 +127,8 @@ def run_cell(cells, theta, cfg, rng):
         outs = [outcomes(norm.sf((z - delta0) / sigma0), truth, cfg) for z, truth in draws]
         rows.append(dict(theta=theta, null=null, delta0=delta0, sigma0=sigma0, n_docs=sum(len(t) for _, t in draws),
                          n_kept_human=kept_human, m_mean=np.concatenate([t.sum(axis=1) for _, t in draws]).mean(),
-                         **{k: np.concatenate([o[k] for o in outs]).mean() for k in outs[0]}))
+                         **summarize({k: np.concatenate([o[k] for o in outs]) for k in outs[0]},
+                                     cfg["phase"]["ci_level"])))
     return rows
 
 

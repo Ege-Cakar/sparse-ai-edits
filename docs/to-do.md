@@ -52,8 +52,12 @@ Weeks 1-3: detection
 - [ ] RunPod setup: environment, storage for `data_dir`, how each step is launched.
 - [ ] Wire innovated / PC-adjusted HC into `phase.py`: covariance from calib windows, choice of K (review items 58-61).
 - [ ] Pangram and any other closed-source detectors.
-- [ ] The week-2 "estimators" (which quantities to estimate, e.g. the edited fraction, still to be specified).
-- [ ] Confidence intervals on power and recovery rates.
+- [x] Edited-fraction estimators: Storey point estimate and Meinshausen-Rice lower bound (`stats.py`, Rui), reported
+      per phase cell with the true fraction and coverage. Which fraction the week-4 weights need is still open
+      (review.md item 67).
+- [x] Confidence intervals on power and recovery rates: Wilson / normal intervals over documents on every per-cell
+      mean (`phase.summarize`, Rui). Calibration-set and empirical-null uncertainty are not covered (review.md
+      item 54).
 - [ ] Freeze the phase diagrams (week 3).
 
 Week 4: training

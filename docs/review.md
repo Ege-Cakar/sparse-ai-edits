@@ -400,9 +400,16 @@ preliminary choice, where it lives, and what to check.
     - Preliminary: r in {0.1, ..., 4.0}, 2000 simulated documents per cell, at each window n (`phase.sim_r`,
       `phase.sim_docs`), each cell with its own seed (`cell_rng`).
 54. Uncertainty. TBD.
-    - Preliminary: one base seed (0), with per-cell seeds derived from it; no confidence intervals on power or
-      recovery rates.
-    - Review: binomial standard errors, or a bootstrap over documents.
+    - Preliminary: one base seed (0), with per-cell seeds derived from it. Every per-cell mean carries a 95%
+      interval over documents in `<metric>_lo` / `<metric>_hi` (`phase.ci_level`, `phase.summarize`): Wilson for
+      rates (rejection, exact recovery, coverage), mean +- 1.96 sd / sqrt(N) for Hamming error and the
+      edited-fraction columns. Documents are treated as independent, which holds for the draw (one window per
+      document) but not for everything upstream.
+    - Review: the intervals ignore (a) the shared calibration set behind every conformal p-value, (b) the
+      empirical-null fit pooled over all z of a cell, (c) the Monte Carlo test thresholds, and (d) the choice of
+      one rep per sentence. A bootstrap over documents that refits (b) would cover (b); (a) needs resampling
+      the calibration split. Cells at different theta reuse the same documents, so their intervals are not
+      independent; compare cells by paired differences, not by overlapping intervals.
 55. Reporting across sources. TBD.
     - Preliminary: every phase-diagram row carries its source; nothing is aggregated across sources.
     - Review: whether and how to combine sources into one diagram (equal weight per source vs per document).
@@ -496,3 +503,26 @@ has fewer editable words than k.
 66. MLM. TBD.
     - Preliminary: `roberta-base` (125M parameters). Cost: about 5 jobs/s on an Apple M-series GPU; a test split
       (about 300k jobs at 7 strengths x 2 reps) needs a CUDA GPU or a smaller grid.
+
+## Edited fraction (`stats.eps_storey`, `stats.eps_lower`)
+
+The week-2 estimator target, taken here as the fraction eps = m / n of a document's sentences that were edited
+(the rare/weak eps). Both estimators are row-wise functions of p-values, so they apply unchanged to the corpus-level
+fraction of edited documents given one p-value per document (e.g. from HC).
+
+67. Estimators. TBD.
+    - Preliminary: Storey (2002) point estimate 1 - #{p > lambda} / ((1 - lambda) n), clipped to [0, 1], at
+      lambda = 1/2 (`phase.storey_lambda`); Meinshausen & Rice (2006) lower confidence bound with the HC bounding
+      function at level `phase.alpha`, whose constant is the Monte Carlo null quantile of HC over all i
+      (`null_thresholds` key `hc_all`). The bound is positive exactly when that HC rejects. Reported per cell:
+      `eps_true` (sentences actually edited, so rejected edits count as human), `eps_storey`,
+      `sqerr_eps_storey`, `eps_lower`, `cover_eps_lower`.
+    - Gaussian check (n in {16, 32}, the `sim_r` grid): MR coverage >= 0.95 in every cell, but the bound is
+      conservative (n = 32, theta = 0.5, r = 2: eps = 0.19, mean bound 0.14; at r = 0.5 it is 0.03). Storey is
+      close for dense strong edits, biased down by eps P(edited p > 1/2) / (1/2) for weak edits, and biased up by
+      the clip at 0 for sparse ones (n = 32, theta = 0.9: eps = 0.031, mean estimate 0.08-0.09).
+    - Review: whether per-document eps is the quantity the week-4 weights need, or the corpus-level fraction
+      of edited documents (Lecture 5 lists "estimate fraction" at the document level); the choice of lambda;
+      Jin & Cai (2007) for a consistent estimator in the sparse regime where Storey fails; a pooled estimate per
+      cell (all windows together) in place of the mean of per-document estimates. Coverage on real p-values
+      inherits the independence assumption of item 44.
