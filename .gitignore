@@ -1,6 +1,9 @@
 __pycache__/
 .venv/
 .pytest_cache/
-data/
+data/*
+!data/sentences.parquet
+!data/segment_cache.jsonl
+!data/edits/
 *.egg-info/
 .env
