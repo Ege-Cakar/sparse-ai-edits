@@ -88,6 +88,7 @@ edit:
                 extra_body: {chat_template_kwargs: {clear_thinking: true}}}}
 
 lm_scores:                     # one forward pass of both models gives all three zero-shot scores
+  splits: [calib, test]        # versions scored; train and val are only for the supervised detectors
   observer: tiiuae/falcon-7b
   performer: tiiuae/falcon-7b-instruct
   batch_size: 32
