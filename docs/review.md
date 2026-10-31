@@ -6,36 +6,41 @@ preliminary choice, where it lives, and what to check.
 
 ## Sources
 
-1. Which sources. TBD.
-   - Preliminary: eight sources (`corpus.sources`, loaders in `sources.py`): C4 web pages; PERSUADE 2.0 essays by US
-     students in grades 6-12; ELLIPSE essays by English language learners in grades 8-12; XSum BBC news articles;
-     arXiv abstracts; OpenReview peer reviews; Enron emails (AESLC); PG-19 books.
-   - Review: apart from C4, each source is a setting where AI detection is used in practice: classrooms, learner
-     writing, journalism, academic publishing, peer review, workplace email, books. ELLIPSE matters because detectors
-     have been reported to flag non-native writing as AI (Liang et al. 2023). Considered and not added: CNN/DailyMail
-     (Daily Mail articles carry page boilerplate), ASAP essays (redistribution terms unclear), PeerRead (only on
-     GitHub as per-paper JSON), patents (HUPD) and court opinions (not checked in depth), Reddit / WritingPrompts and
-     product reviews (web text).
-2. Date cutoff. TBD.
-   - Preliminary: `max_year: 2019` (`corpus.defaults`), applied where documents carry dates: arXiv (first-submission
-     year from the id) and OpenReview (venue year, e.g. ICLR 2018 and 2019). The rest predate it by construction:
-     C4 (April 2019 crawl), XSum (2010-2017), Enron (2000-2002), PG-19 (published before 1919). PERSUADE and ELLIPSE
-     carry no dates; both were released through Kaggle competitions before ChatGPT (not verified here).
-   - Review: the proposal allows pre-2020, pre-2021 or pre-2022 text. arXiv abstracts are the version in a 2021
-     snapshot, so a paper first submitted in 2019 can carry an abstract revised in 2020-2021. Pre-2020 text can
-     contain pre-LLM tool edits (spell checkers, Grammarly). C4 is not purely human-written: the smoke run sampled
-     article-spinner output ("a combined bag of outcomes, including hyperlinks to weight gain").
+1. Which sources. Decided 2026-10-29 by Ege.
+   - Eight sources (`corpus.sources`, loaders in `sources.py`): FineWeb-Edu web pages; peS2o full-text papers;
+     PERSUADE 2.0 essays by US students in grades 6-12; ELLIPSE essays by English language learners in grades 8-12;
+     XSum BBC news articles; OpenReview peer reviews; Enron emails (AESLC); WritingPrompts short stories.
+   - Replaced: C4 by FineWeb-Edu (higher-quality web text), arXiv abstracts by peS2o (abstracts have at most 15
+     sentences, so they never form 16- or 32-sentence windows), PG-19 by WritingPrompts (pre-1919 English is far
+     from current writing; no open full-text book corpus newer than PG-19 was found).
+   - Review: FineWeb-Edu is selected by a classifier trained on Llama-3-70B ratings of educational value, so an
+     LLM's judgment picks the human text (DCLM-baseline was avoided for the stronger version of this: its classifier's
+     positives are GPT-4-generated OpenHermes data). The training corpus (week 4) is still C4, which the detection
+     corpus no longer contains. ELLIPSE matters because detectors have been reported to flag non-native writing as AI
+     (Liang et al. 2023). Considered and not added: CNN/DailyMail (Daily Mail articles carry page boilerplate), ASAP
+     essays (redistribution terms unclear), PeerRead (only on GitHub as per-paper JSON), patents (HUPD) and court
+     opinions (not checked in depth), BookCorpusOpen (no license), C4 blog pages selected by URL (spam remains).
+2. Date cutoff. Decided 2026-10-29 by Ege: 2020.
+   - `max_year: 2020` (`corpus.defaults`), applied where documents carry dates: FineWeb-Edu (crawl year of the Common
+     Crawl dump, which bounds the page's creation), peS2o (`created`, a best-guess first-publication date) and
+     OpenReview (venue year). The rest predate it by construction: XSum (2010-2017), Enron (2000-2002),
+     WritingPrompts (collected for Fan et al. 2018). PERSUADE and ELLIPSE carry no dates; both were released through
+     Kaggle competitions before ChatGPT (not verified here).
+   - Review: GPT-3 was released in June 2020, so 2020 text can include GPT-3-assisted writing (rare then). Text of
+     any year can contain pre-LLM tool edits (spell checkers, Grammarly). Web text is not purely human-written: the C4
+     smoke run sampled article-spinner output ("a combined bag of outcomes, including hyperlinks to weight gain").
 3. Licenses. TBD.
-   - Preliminary: PERSUADE and ELLIPSE CC BY-NC-SA 4.0; the OpenReview dataset CC BY-NC 4.0; arXiv metadata CC0;
-     C4 ODC-BY; XSum and AESLC "unknown" on the Hub; PG-19 books are public domain.
+   - Preliminary: PERSUADE and ELLIPSE CC BY-NC-SA 4.0; the OpenReview dataset CC BY-NC 4.0; FineWeb-Edu and peS2o
+     ODC-By; WritingPrompts MIT on the Hub (Reddit posts); XSum and AESLC "unknown" on the Hub.
    - Review: a released dataset of edits inherits the non-commercial and share-alike terms of PERSUADE, ELLIPSE and
      OpenReview. Check before release.
 4. Access and mirrors. TBD.
-   - Preliminary: PERSUADE from the authors' Google Drive link (downloaded with `gdown`, cached in `data_dir/raw`);
-     ELLIPSE from the authors' GitHub; the rest from the Hugging Face Hub: `allenai/c4`, `EdinburghNLP/xsum`,
-     `gfissore/arxiv-abstracts-2021`, `nhop/OpenReview`, `Yale-LILY/aeslc`, `emozilla/pg19` (a parquet copy of
-     `deepmind/pg19`, whose loading script current `datasets` cannot run).
-   - Review: `gfissore`, `nhop` and `emozilla` are third-party uploads; check them against the originals.
+   - Preliminary: PERSUADE from the authors' Google Drive link (downloaded with `gdown`, cached in `data_dir/raw`;
+     SHA-256 f61319ed...); ELLIPSE from the authors' GitHub at commit b5f44696; the rest from the Hugging Face Hub at
+     the revisions pinned in `sources.REVISIONS` (2026-10-29): `HuggingFaceFW/fineweb-edu`, `allenai/peS2o` (read
+     as JSON, files 10-19 of `data/v2` hold the full texts; its loading script no longer runs), `EdinburghNLP/xsum`,
+     `nhop/OpenReview`, `Yale-LILY/aeslc`, `euclaise/writingprompts`.
+   - Review: `nhop` and `euclaise` are third-party uploads; check them against the originals.
 5. Overlap between sources. TBD.
    - Review: PERSUADE and ELLIPSE come from US school writing collected by the same group; check for shared essays
      before treating one as a held-out domain for the other.
@@ -43,44 +48,95 @@ preliminary choice, where it lives, and what to check.
 ## Corpus
 
 6. Sampling within a source. TBD.
-   - Preliminary: streaming sources use a seeded shuffle buffer (`shuffle_buffer`: 10,000 documents; 200 for PG-19,
-     whose rows are whole books), which shuffles shard order and then draws through the buffer, so it is an
-     approximate shuffle. PERSUADE and ELLIPSE are loaded whole and shuffled exactly.
-7. Split sizes. TBD.
-   - Preliminary: C4 2000 train / 200 val / 2000 calib / 1000 test documents; every other source 500 / 50 / 500 / 250
-     (`corpus.sources.*.n_docs`).
-   - Review: test size sets the Monte Carlo error of every power estimate; calib size sets the resolution of the
-     p-values (about calib sentences / 10 null sentences per length bin). Equal document counts give unequal
-     sentence counts across sources.
+   - Preliminary: streaming sources use a seeded shuffle buffer (`shuffle_buffer`: 10,000 documents), which shuffles
+     shard order and then draws through the buffer, so it is an approximate shuffle. FineWeb-Edu's first 1,500 rows
+     in build order came from several crawls (2014-2018, about 150-180 rows from each of the top five). PERSUADE and
+     ELLIPSE are loaded whole and shuffled exactly.
+7. Split sizes. Decided 2026-10-29 by Ege.
+   - Every source gets 15,000 train / 1,500 val / 15,000 calib / 7,500 test sentences (`corpus.defaults.n_sentences`):
+     each split is filled with whole documents until it reaches its target, so it overshoots by less than one
+     document. Equal sentence counts give equal edit cost, test size and calib resolution per source (about 1,500 null
+     sentences per length bin); the number of documents varies with document length (few for peS2o).
+   - Review: power estimates in window mode use one window per test document with at least n sentences, so their
+     Monte Carlo error depends on how many such documents a source has, not on its sentence count.
 8. Split assignment and leakage. TBD.
-   - Preliminary: within each source, splits are filled in stream order, so they are disjoint by document. No
-     near-duplicate removal. Reviews of the same paper are separate documents and can land in different splits.
-   - Review: C4 has near-duplicate pages (templates, syndicated articles). A near-duplicate across train and test
-     leaks into the classifiers; across calib and test it makes p-values dependent.
-9. Sentence segmentation. TBD.
-   - Preliminary: NLTK Punkt (`punkt_tab`) within paragraphs (`text.sentences`). Paragraphs are split on blank lines
-     for PERSUADE, ELLIPSE, arXiv and PG-19 (single newlines there are line wrapping) and on newlines for C4, XSum,
-     OpenReview and Enron (`sources.SOURCES`).
-   - Review: Punkt keeps a sentence together at single-letter initials ("d. E"), and it also decides the editor's
-     "exactly one sentence" check. Bullet lists in reviews become sentences. Alternatives: spaCy, pySBD, blingfire.
+   - Preliminary: within each source, splits are filled in stream order, so they are disjoint by document.
+     Every source skips a document whose paragraphs and sentences exactly repeat an earlier one (`corpus.unique`;
+     2026-10-30): AESLC files one Enron email in up to 8 folders, and before this 93 such emails filled 228 Enron
+     documents, 69 of them in more than one split; FineWeb-Edu repeats a page across crawls. No near-duplicate
+     removal. Reviews of the same paper are separate documents and can land in different splits.
+   - Review: web text has near-duplicate pages (templates, syndicated articles). A near-duplicate across train and
+     test leaks into the classifiers; across calib and test it makes p-values dependent.
+9. Sentence segmentation. Decided 2026-10-30 by Ege.
+   - Paragraphs (`text.paragraphs`) are split on blank lines for PERSUADE, ELLIPSE and peS2o (single newlines there
+     are line wrapping) and on newlines for FineWeb-Edu, XSum, OpenReview, Enron and WritingPrompts (`sources.SOURCES`).
+     Paragraphs of only whitespace or zero-width characters are dropped (OpenReview has some of only U+200B).
+   - Before segmentation, ftfy 6.3.1 repairs encoding errors, HTML entities, ligatures, control characters and line
+     breaks (`corpus.FTFY`; decided 2026-10-30 by Ege), keeping quote style and character width as written. It changed
+     351 documents: "Â£" mojibake in 310 XSum articles, lone `\r` line breaks that had merged the paragraphs of 17
+     ELLIPSE essays, PDF ligatures. 17 sentences keep errors ftfy cannot undo (PDF font errors such as "5 Â 5 mm" in
+     peS2o, characters already lost as U+FFFD).
+   - Source repairs with a known cause (decided 2026-10-30 by Ege): Enron bodies with quoted-printable leftovers
+     (=20, =09, =3D, soft line breaks; about 2% of AESLC emails) are decoded (`sources.decode_qp`); PERSUADE's
+     processing put a space after every period followed by a letter, visible in web addresses (35 spaced domains, 0
+     unspaced), which are rejoined (`sources.join_urls`).
+   - Sentences and paragraph breaks from an LLM (decided 2026-10-30 by Ege; `segment.py`, `corpus.segmenter`):
+     Qwen3.5-122B-A10B-FP8 (pinned revision, vLLM 0.32.0, thinking off, greedy) gets each document in chunks of whole
+     paragraphs and returns one sentence per line. A reply is accepted only if, with whitespace removed, it equals the
+     chunk, except for hyphens dropped before whitespace ("in- dicates"); otherwise the chunk goes to SaT. In
+     WritingPrompts, peS2o, FineWeb-Edu and XSum, whose spacing errors come from tokenization or extraction, its
+     spacing and hyphen fixes are kept; elsewhere only its breaks, so essays, emails and reviews keep the writers' own
+     spacing. A paragraph break is kept only where the text had a line break, and a line break inside a sentence is
+     wrapping: SaT within newline-split paragraphs had cut 867 FineWeb-Edu and 869 OpenReview sentences at hard line
+     wraps. Replies are cached (`segment_cache.jsonl`), so rebuilds reproduce the corpus. The `segmenter` column
+     records "llm", "llm+sat", "sat" or "punkt" per sentence.
+     Pilots (40 documents per source): Qwen straightened curly quotes (most rejections), so quote variants count as
+     equal and sentences are rebuilt from the original characters; it sometimes left two sentences on one line (11% of
+     XSum lines), so SaT's breaks inside a Qwen sentence are added where the text before them ends with . ! ? or
+     ... (`segment.resplit`, "llm+sat"; decided 2026-10-30 by Ege); in peS2o it may also drop a hyphen between two
+     lowercase letters ("pop-ular", `segmenter.rejoin_hyphens`; decided 2026-10-30 by Ege). Learner run-ons without
+     punctuation stay one sentence (decided 2026-10-30 by Ege). Exact-repeat documents are now dropped before
+     splitting (`corpus.unique`), since concurrent greedy replies to identical requests can differ. Evidence that LLMs split better than SaT is thin (SaT paper:
+     SaT beat the 2024 LLM baselines it tested), so the choice is checked on a hand-labelled sample.
+   - SaT fallback: wtpsplit 2.2.2 SaT `sat-12l-sm` within each paragraph (`text.indexed_sentences`), at pinned model and
+     tokenizer revisions (`text.SAT_MODEL`, `text.SAT_TOKENIZER`), fp32, wtpsplit's default threshold for `-sm` models
+     (0.25), sentences stripped of surrounding whitespace. The corpus is built on a GPU (on 4 CPUs SaT-12 ran about
+     7 sentences/s; on an RTX 4000 Ada, 350-790). A paragraph SaT fails on is split by Punkt instead
+     (`segmenter` "punkt") (wtpsplit hit an internal assertion once, on an OpenReview paragraph, in a first run
+     of the comparison). On the comparison's 2,024 paragraphs the GPU build gives exactly the CPU comparison's
+     sentences, and the sentences rejoin to each paragraph with no characters lost.
+   - Why (Punkt, pySBD, spaCy `en_core_web_sm` senter, SaT 3- and 12-layer on 20 documents per source, 2026-10-29;
+     results and scripts in `data/splitter_comparison/`): only SaT separates the section headers that peS2o's PDF
+     extraction glues to the next sentence ("Demographic data District-level ..."); fragments such as "I." or
+     "2003)." in peS2o: Punkt 265, spaCy 145, sat-3l 30, pySBD 26, sat-12l 23; sentences over 60 words in ELLIPSE:
+     Punkt 2.2%, sat-12l 0.9%. sat-3l over-splits learner run-ons; spaCy breaks bracketed citations; pySBD and
+     sat-12l keep quoted dialogue together. Seen in the examples: sat-12l split "7. || Victor ..." in a numbered list.
 10. Word definition. TBD.
     - Preliminary: lowercased `\w+(?:['’]\w+)*` tokens (`text.words`). Punctuation-only and case-only changes are not
       edits; hyphenated words count as two words; numbers count as words.
     - Review: this one definition sets L, k, the edit count, and the length bins.
-11. Sentence eligibility. TBD.
-    - Preliminary: keep sentences with 8 to 60 words; drop the rest from the document and reindex (`min_words`,
-      `max_words`). A document is its sequence of eligible sentences, and n counts only those.
-    - Review: dropping short sentences changes documents (headings and list items disappear) and changes what n means.
-12. Document eligibility. TBD.
-    - Preliminary: 8 to 64 eligible sentences (`min_doc_sentences`, `max_doc_sentences`); 4 or more for arXiv
-      abstracts and Enron emails, which are short.
-    - Review: the upper cap bounds editing cost but removes long documents from whole-document mode. Short-document
-      sources contribute nothing to windows of n = 16 or 32.
+11. Sentence eligibility. Decided 2026-10-29 by Ege.
+    - Every sentence is kept, so documents stay contiguous. Short sentences are edited and tested like any other:
+      k = max(1, round(r L)) asks for one edit in a 3-word sentence even at r = 0.05 (33% of its words), as intended.
+      Sentences with no words ("!", ".", "***"; 0-1.4% per source) are never sent to an editor (`edit.todo_for`,
+      decided 2026-10-29) and stay human in every version.
+    - Review: fragments become sentences (headings, greetings, sign-offs, scene breaks such as "***").
+12. Document eligibility. Decided 2026-10-29 by Ege.
+    - 3 to 512 sentences (`min_doc_sentences`, `max_doc_sentences`); documents outside the range are skipped whole,
+      never cut.
+    - Review: whole-document mode groups test documents by exact length; 3-sentence documents give cells where
+      m = round(n^(1 - theta)) is 1 at every theta.
 13. Per-source document construction. TBD.
     - Preliminary: OpenReview, one review per document: summary, main review, strengths and weaknesses, questions,
-      limitations and review summary joined in that order, field-name prefixes removed, review title dropped. PG-19,
-      one passage per book: 20,000 characters on each side of the midpoint, cut paragraphs at both ends dropped, then
-      the first 64 eligible sentences (`truncate`). Enron documents are keyed by a hash of the body.
+      limitations and review summary joined in that order, field-name prefixes removed, review title dropped.
+      WritingPrompts, the story only (prompt dropped), with the dataset's tokenization undone (`sources.detokenize`,
+      decided 2026-10-29): "``" and "''" become '"', "do n't" becomes "don't", spaces inside curly quotes removed
+      (found in 65%, 65%, 71% and 13% of 5,000 stories). peS2o, the Grobid text as given: title as the first
+      paragraph, then the abstract and sections with their headers. XSum, only articles from the BBC News and
+      Newsbeat URL sections (decided 2026-10-29; `sources.XSUM_SECTIONS`): Sport pages are dropped (27% of the built
+      XSum documents; their match reports end in automated live commentary such as "Substitution, Everton."), as are
+      Newsround video pages (timestamp boilerplate), Newyddion (Welsh) and School Report. Enron and WritingPrompts
+      documents are keyed by a hash of the text.
 
 ## Editing
 
@@ -89,27 +145,72 @@ preliminary choice, where it lives, and what to check.
       Kimi K3, GLM 5.3, DeepSeek V4.1 Flash (1017). gpt-6-astra gets a 5,000-edit test-split check paired with sol's
       edits. Qwen 3.5 (397B-A17B) is the proposed held-out editor. Not yet in the config (`edit.editors: []`).
     - Preliminary: an open 8B-class editor on RunPod for 2024-era diversity.
+    - 2026-10-31 (Ege), first editing round, self-hosted on RunPod while API keys are pending: gpt-oss-120b and
+      Gemma 4 31B (training editors), Qwen3.5-122B-A10B (held out, standing in for Qwen 3.5 397B). Each edits every
+      editable train/val/test sentence once (192,522 requests). GLM 5.3 (753B) needs 8 H200s (~$42/h) and Mistral
+      Large 4 ("le Chonk", 1T) 8 B200s, out of stock on 2026-10-31; both licenses (modified MIT) allow research use.
+      With whole-document prompts a pass is ~381M input tokens without prompt caching (~5M unique document tokens),
+      so API editors cost far more than the budget's ~100 input tokens per edit unless the provider caches prompts.
+      GLM 5.3 Flash (320B, 18B active, MIT) was set up on 4 H200s and dropped the same day to stay within the RunPod
+      credit ($149); to run later. Rates on 2026-10-31: gpt-oss 3,600 edits/min (H200), Gemma 4 1,950 (H200),
+      Qwen3.5 1,390 (B200); after 3 attempts 7.2%, 5.4% and 8.8% of sentences stay unedited.
     - Review: whether to hold out Qwen 3.5 (an unseen lab) and also hold out other versions of training editors (an
       idea from Ege) to test version generalization. Open-weight models through OpenRouter can be served by
       different providers, some with quantized weights: pin a provider and record it. Turn reasoning off where the
       API allows (Kimi K3 untested). An editor from the same family as the zero-shot scoring models (item 28)
       confounds those detectors.
-15. Prompt. TBD.
-    - Preliminary: system message "You are an AI writing assistant that edits people's writing."; the user message
-      asks to polish the sentence, change exactly k of its n words, keep the meaning, keep one sentence, and reply
-      with only the sentence (`edit.SYSTEM`, `edit.PROMPT`).
-    - Review: the prompt defines what an "AI edit" is in this study. "Polishing" pushes toward AI style; a neutral
-      "change k words" instruction gives a different signal. Several prompt styles are an option. One fixed template
-      can also become an artifact that classifiers learn.
-16. Editing context. TBD.
-    - Preliminary: the editor sees only the sentence; the masked-infilling editor matches this by default
-      (`context: false`, item 65), so editors differ in how they edit, not in what they see.
-    - Review: real AI editing sees the paragraph or document, which changes word choice and consistency with neighbors.
+15. Prompt. Decided 2026-10-29 by Ege.
+    - System message (`edit.SYSTEM`): a generic assistant prompt, "You are {product}, a helpful AI assistant..." with
+      five guidelines and "Today's date is November 1, 2026."; `product` is set per editor (ChatGPT for OpenAI models
+      and gpt-oss, Claude for Anthropic's). The vague-request guideline asks for a best-effort answer instead of a
+      clarifying question, to avoid outputs that are questions. It is not any vendor's production system prompt.
+    - User message (`edit.PROMPT`): "Text: {document}", a blank line, then 'Edit the sentence "{sentence}", please in
+      the text above, to improve the writing. Change exactly {k} of its {n} words by replacing, inserting, or deleting
+      words. Keep the meaning and keep it one sentence. Reply with only the edited sentence, followed by a line
+      break.' PERSUADE and ELLIPSE sentences that contain anonymization placeholders (Generic_Name, STUDENT_NAME, ...)
+      get "Keep the placeholder(s) ... exactly as written." appended; other sentences do not.
+    - Decided 2026-10-31 by Ege, in use: two wordings (`edit.ASK`, chosen per editor with `prompt`). "edit": 'Edit the
+      sentence "{sentence}", please in the text above, to improve the writing. Keep the meaning and about the same
+      length, and keep it one sentence.' "light" (a second pass, every split): 'Lightly edit the sentence
+      "{sentence}", please in the text above, to improve the writing, changing only what needs it. Keep the meaning
+      and about the same length, and keep it one sentence.' Pilot (400 test sentences, one attempt): median share of
+      words changed old / edit / light = Qwen3.5 0.40 / 0.38 / 0.24, Gemma 4 0.46 / 0.46 / 0.22, gpt-oss 0.50 / 0.50 /
+      0.36; "about the same length" cut over-twice-as-long edits (Gemma 5.8% -> 2.8%) but not the strength.
+    - Decided 2026-10-30 by Ege: drop "Change exactly {k} of its {n} words by replacing,
+      inserting, or deleting words." A requested count is not something users ask for and may make edits unnatural
+      (forced word swaps to reach k); the edit strength is instead measured afterwards (`actual_r` = word edits / n
+      words, already computed by `edit.consolidate`). Open: how strengths are covered without target strengths
+      (item 17).
+    - gpt-oss through vLLM: vLLM puts the harmony system message first ("You are ChatGPT, a large language model
+      trained by OpenAI.", knowledge cutoff 2024-06, current date, "Reasoning: low") and our system message becomes
+      the developer message. Its date is pinned to 2026-11-01 (`VLLM_SYSTEM_START_DATE`) to match ours.
+    - Review: one fixed template for every sentence can become an artifact that classifiers learn. "To improve the
+      writing" pushes toward AI style. The target sentence is identified by quoting it; if the same sentence occurs
+      twice in a document, the editor may edit either occurrence (same text, so only the context differs).
+16. Editing context. Decided 2026-10-29 by Ege: the whole document.
+    - The editor sees the sentence's whole original document, rebuilt from the stored sentences: a paragraph's
+      sentences joined by spaces (original line wrapping is lost), paragraphs joined by the source's separator
+      (`edit.documents`, `sentences.para_idx`). The document comes first in the prompt, so all requests for one
+      document share a prefix that vLLM's prefix cache (and API prompt caches above their minimum length) reuse; jobs
+      are sent in document order, and `--limit` takes whole documents in a seeded order.
+    - Each sentence is edited against the original document, so two edited sentences in the same document never see
+      each other's changes; a multi-sentence edited document is assembled afterwards (`phase.py`, items 49-50) from
+      independent single-sentence edits. A real AI pass over a document would edit several sentences jointly and
+      consistently.
+    - Cost: per pass of one editor, about 2.5B input tokens if every request is processed from scratch, about 136M
+      if each document is processed once (o200k tokens on the 2026-10-29 corpus; peS2o papers average 5,755
+      tokens). API editors cache only prompts above a minimum length, and most documents are shorter.
+    - Review: the masked-infilling control editor still sees only the sentence by default (`context: false`, item
+      65), so it now differs from the LLM editors in what it sees.
 17. Strength definition and grid. TBD.
     - Preliminary: target r in {0.05, 0.1, 0.2, 0.3, 0.5, 0.75, 1.0}; k = max(1, round(r L)) (`edit.target_strengths`,
       `edit.n_target`).
     - Review: k >= 1 puts a floor of 1/L on the strength of short sentences, so a low target means different things
       at different L.
+    - 2026-10-30: with the count dropped from the prompt (item 15), each editor edits at its own natural strength, so
+      the grid goes away and phase cells would be per editor, placed by measured strength (`actual_r`, `mu_eff`).
+      Open: whether that covers the sparse, low-strength region; binning by measured strength selects on sentences
+      (the ones an editor changes most differ from the rest); varying strength by wording instead of numbers.
 18. Edits per sentence. TBD.
     - Preliminary (budget plan, 2026-10-18): on the test split, every editor edits every sentence at all 7 strengths
       once. On train/val, each training editor edits a random sample of 50,000 (sentence, strength) pairs. A second
@@ -121,7 +222,12 @@ preliminary choice, where it lives, and what to check.
       (same sentences and strengths, a paired design). `edit --dry-run` prints request counts.
 19. Which splits are edited. TBD.
     - Preliminary: train, val, test; calib stays human-only (`edit.splits`).
-20. Sampling parameters and reasoning effort. TBD.
+20. Sampling parameters and reasoning effort. Decided 2026-10-31 by Ege: each model's recommended settings.
+    - gpt-oss-120b: temperature 1.0, top_p 1.0 (OpenAI), `reasoning_effort: low` (the lowest it has; vLLM rejects
+      none), max_tokens 4096 counting reasoning; the reasoning text is not saved. Qwen3.5-122B: thinking off, Qwen's
+      non-thinking settings (temperature 0.7, top_p 0.8, top_k 20, min_p 0, presence penalty 1.5). Gemma 4 31B:
+      thinking off, Google's settings (temperature 1.0, top_p 0.95, top_k 64). Self-hosted with vLLM 0.32.0 and
+      `--generation-config vllm`, so only these settings apply (`edit.editors[].params`).
     - Preliminary: set per editor in `params`; the smoke tests used temperature 0.7, and for `gpt-6-luna`
       `reasoning_effort: none` with `max_completion_tokens: 256` (it rejects `max_tokens`). No request seeds are sent,
       so editor outputs are not reproducible.
@@ -132,9 +238,15 @@ preliminary choice, where it lives, and what to check.
 21. Output cleaning. TBD.
     - Preliminary: strip whitespace and one pair of wrapping quotes that the original did not have (`edit.clean`).
 22. Rejection and resampling. TBD.
-    - Preliminary: reject output that is empty, not exactly one Punkt sentence, or has unchanged words; resample up
+    - Preliminary: reject output that is empty, splits or merges Punkt sentences, or has unchanged words, and (decided
+      2026-10-29) essay output that changed a placeholder the prompt asked to keep (`placeholder_changed`), and
+      (decided 2026-10-31) output with more than twice the original's words (`too_long`: short sentences such as
+      "Thanks." or "Disadvantages:" turned into invented content, 6-8% of first attempts); resample up
       to 3 times (`edit.max_attempts`). Still-rejected outputs stay in `edits.parquet` and are left out of
       `versions.parquet`.
+    - Decided 2026-10-30 by Ege: with SaT sentences (item 9), the sentence check is "the output has as many Punkt
+      sentences as the original" (`sentence_count_changed`, which replaces `not_one_sentence`), so a SaT sentence that
+      Punkt reads as two (quoted dialogue) can still be edited, without running SaT on every output.
     - Review: nothing checks that the edit changed about k words. Left-out edits make documents incomplete, and
       `phase.py` drops those documents (item 51), which can select against sentences that are hard to edit.
 23. Measuring the edit. TBD.
@@ -159,6 +271,11 @@ preliminary choice, where it lives, and what to check.
     - Preliminary: every sentence is scored in isolation.
     - Review: scoring with the preceding human sentences as context gives the LM scorers more information but makes a
       sentence's score depend on its neighbors.
+    - 2026-10-30 (Ege asked; isolated scoring kept for the main analysis): in isolation a human sentence scores the
+      same whether or not its neighbors were edited, so its conformal p-value against all-human calib sentences is
+      uniform in any document, and each version is scored once and looked up when windows are assembled. With
+      context, a human sentence next to edits scores differently than in calib (no valid null without knowing the
+      edits), and every edit placement would need rescoring. The likely price is power on short sentences.
 28. Zero-shot scoring models. TBD.
     - Preliminary: observer `tiiuae/falcon-7b`, performer `tiiuae/falcon-7b-instruct` (`lm_scores`), the Binoculars
       defaults and the Fast-DetectGPT script defaults.
@@ -180,6 +297,9 @@ preliminary choice, where it lives, and what to check.
       Editors with `train_classifier: false` (the masked-infilling control, item 62) are excluded as well.
     - Review: mixing all strengths (full rewrites included) vs emphasizing weak edits; a balanced training set vs the
       sparse test setting; pooled vs per-source classifiers, and holding out whole sources to test transfer.
+    - Decided 2026-10-30 by Ege, not yet implemented: binary (human vs AI-edited) on every accepted train edit plus
+      the human sentences, weighted to balance the classes instead of subsampling one edit. Open: global class
+      weights vs per-sentence weights (each human sentence 1, each of its K edits 1/K).
 33. Fine-tuned classifier. TBD.
     - Preliminary: `answerdotai/ModernBERT-base`, lr 3e-5, 2 epochs, batch 64, max 128 tokens, best epoch by val loss,
       no hyperparameter search. Score = logit(edited) - logit(human).

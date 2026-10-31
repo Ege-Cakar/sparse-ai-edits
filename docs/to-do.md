@@ -7,9 +7,17 @@ setting is final. Open decisions are in
 
 ## Implemented (preliminary)
 
-- [x] Corpus: eight human-text sources (C4, PERSUADE, ELLIPSE, XSum, arXiv abstracts, OpenReview reviews, Enron
-      emails, PG-19), sentence segmentation, eligibility filters, document-level splits per source (`sources.py`,
-      `corpus.py`, `text.py`). Smoke-tested at 18 documents per source.
+- [x] Corpus: eight human-text sources (FineWeb-Edu, peS2o, PERSUADE, ELLIPSE, XSum, OpenReview reviews, Enron
+      emails, WritingPrompts), whole documents of 3-512 sentences, document-level splits filled to sentence targets
+      per source (`sources.py`, `corpus.py`, `segment.py`, `text.py`; review.md items 1-13). Built 2026-10-30 on a
+      RunPod B200: ftfy and source repairs, exact-repeat documents dropped, sentences and paragraph breaks from
+      Qwen3.5-122B-A10B with SaT fallback (88% of sentences split by Qwen; replies cached in segment_cache.jsonl):
+      313,249 sentences in 14,654 documents, 192,522 editable in train/val/test; sha256 8fba77d9. Frozen for editing.
+- [x] Editing round 1 (2026-10-31, RunPod, ~$65): gpt-oss-120b, Gemma 4 31B, Qwen3.5-122B (held out), each with
+      the "edit" and "light" wordings over every editable train/val/test sentence (192,522 records per pass, one per
+      sentence, in data/edits/). Accepted after up to 3 attempts, edit / light: gpt-oss 93.8% / 93.2%,
+      Gemma 94.5% / 90.1%, Qwen 92.1% / 88.1%; the rest stay human (too_long, sentence_count_changed, unchanged).
+- [ ] Editing round 2: GLM 5.3 Flash ("edit" and "light"), then the API editors.
 - [x] Editing client for OpenAI-compatible endpoints, resumable, with rejection and resampling, as concurrent requests
       or through the Batch API (`edit.py --batch`; checked against the HUIT gateway).
 - [x] Diff labels: word-level edit count, measured strength, per-word AI mask, and `versions.parquet`

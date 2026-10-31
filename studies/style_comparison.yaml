@@ -1,6 +1,9 @@
 # Style comparison study: do cheaper editors make the same edits as a frontier editor?
 # Same sentences and requested strengths for every editor, 2 samples each (the second sample gives each editor's
 # self-similarity). Preliminary values; see docs/review.md for the open decisions they inherit.
+# The corpus section below builds only with the corpus code at commit 2623bb3 (sources c4/arxiv_abstracts/pg19 and the
+# min_words/max_words/n_docs/truncate keys were replaced on 2026-10-29); the study's data was built with that code.
+# Its edits used that commit's sentence-only prompt (edit.SYSTEM / edit.PROMPT), and `sample` needs that edit.py.
 data_dir: data/style_comparison
 seed: 0
 

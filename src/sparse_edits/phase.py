@@ -143,7 +143,7 @@ def empirical_source(cfg, source, versions, pv):
         null_cells = [complete_human(lookup(human_p, ids), lookup(human_p, ids)) for ids in groups]
         for row in run_cell(null_cells, np.inf, cfg, cell_rng(cfg, "truth", source, mode, n, "none", 0.0, np.inf)):
             rows.append(dict(mode=mode, n=n, editor="none", target_r=0.0, **row))
-        for (editor, target_r), e in edits.groupby(["editor", "target_r"]):
+        for (editor, target_r), e in edits.groupby(["editor", "target_r"], dropna=False):   # NaN: no requested strength
             alt_p = e.set_index("sentence_id").p
             cells = [complete_human(lookup(human_p, ids), lookup(alt_p, ids)) for ids in groups]
             mu_eff = np.nanmedian(np.concatenate([norm.isf(a).ravel() for _, a in cells]))
@@ -188,8 +188,8 @@ def plot(cfg):
                 dots = right.scatter(e.theta, r_eff, c=e[metric], cmap=SEQUENTIAL, vmin=0, vmax=1, s=70,
                                      edgecolors="#52514e", linewidths=0.5)
                 for target_r, y in set(zip(e.target_r, r_eff)):
-                    right.annotate(f"edit {target_r:g}", (0.995, y), ha="right", va="bottom", fontsize=7,
-                                   color="#52514e")
+                    label = "edit" if np.isnan(target_r) else f"edit {target_r:g}"
+                    right.annotate(label, (0.995, y), ha="right", va="bottom", fontsize=7, color="#52514e")
                 for ax in (left, right):
                     draw_boundaries(ax, ymax)
                 left.set(title=f"Gaussian simulation, n = {n}", ylabel=r"$r$  ($\mu = \sqrt{2 r \log n}$)")
