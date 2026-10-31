@@ -12,6 +12,8 @@ dependencies = [
     "tqdm",
     "datasets",
     "nltk",
+    "wtpsplit==2.2.2",
+    "ftfy==6.3.1",
     "rapidfuzz",
     "openai",
     "gdown",

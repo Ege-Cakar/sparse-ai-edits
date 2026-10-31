@@ -6,35 +6,86 @@ seed: 0
 corpus:
   defaults:                    # per-source entries below override these
     shuffle_buffer: 10000      # streaming sources: documents held in the seeded shuffle buffer
-    max_year: 2019             # sources with per-document dates keep documents from this year or earlier
-    min_words: 8               # sentences outside [min_words, max_words] are dropped from the doc
-    max_words: 60
-    min_doc_sentences: 8       # docs outside this range (counting kept sentences) are skipped
-    max_doc_sentences: 64
+    max_year: 2020             # sources with per-document dates keep documents from this year or earlier
+    min_doc_sentences: 3       # documents keep every sentence; those outside this range are skipped whole
+    max_doc_sentences: 512
+    n_sentences: {train: 15000, val: 1500, calib: 15000, test: 7500}   # each split filled with whole docs to at least this
+  segmenter:                   # LLM sentence splitting (segment.py); remove for SaT only
+    model: Qwen/Qwen3.5-122B-A10B-FP8   # served by vLLM 0.32.0 at revision a099dee70ccfcd8d5dda56aaa0b60cb8ecadabc9
+    base_url: http://localhost:8000/v1
+    fix_spacing: [writingprompts, pes2o, fineweb_edu, xsum]   # sources whose spacing errors come from processing
+    rejoin_hyphens: [pes2o]    # PDF words broken across lines with no space left ("pop-ular") may be rejoined
+    max_chunk_chars: 6000      # paragraphs per request, up to this many characters
+    concurrency: 256
+    batch_docs: 256            # documents segmented together; the last batch of a source may go partly unused
   sources:                     # loaders in src/sparse_edits/sources.py; splits filled in the order listed
-    c4: {n_docs: {train: 2000, val: 200, calib: 2000, test: 1000}}
-    persuade: {n_docs: {train: 500, val: 50, calib: 500, test: 250}}
-    ellipse: {n_docs: {train: 500, val: 50, calib: 500, test: 250}}
-    xsum: {n_docs: {train: 500, val: 50, calib: 500, test: 250}}
-    arxiv_abstracts: {n_docs: {train: 500, val: 50, calib: 500, test: 250}, min_doc_sentences: 4}
-    openreview: {n_docs: {train: 500, val: 50, calib: 500, test: 250}}
-    enron: {n_docs: {train: 500, val: 50, calib: 500, test: 250}, min_doc_sentences: 4}
-    pg19: {n_docs: {train: 500, val: 50, calib: 500, test: 250}, truncate: true, shuffle_buffer: 200}
+    fineweb_edu:
+    pes2o:
+    persuade:
+    ellipse:
+    xsum:
+    openreview:
+    enron:
+    writingprompts:
 
 edit:
   splits: [train, val, test]   # calib is human-only (null for p-values)
-  target_strengths: [0.05, 0.1, 0.2, 0.3, 0.5, 0.75, 1.0]   # k = max(1, round(r * n_words))
-  reps: 2                      # edits per (sentence, editor, strength)
-  max_attempts: 3              # resample when output is empty, unchanged, or not one sentence
-  concurrency: 64
+  reps: 1                      # edits per (sentence, editor); no requested strength (edit.py docstring)
+  max_attempts: 3              # resample when output is empty, unchanged, or splits/merges Punkt sentences
+  concurrency: 256
   chunk_size: 5000
   batch_size: 50000            # --batch: requests per Batch API job
-  # TBD (docs/review.md). Each entry: name, model, api_key_env, heldout (bool); optional base_url or base_url_env
+  # Each entry: name, model, product (the name in the system prompt, e.g. ChatGPT or Claude), heldout (bool);
+  # optional api_key_env (omit for self-hosted vLLM); optional base_url or base_url_env
   # (an OpenAI-compatible URL, or the env var holding it; omit both for the OpenAI default); optional auth_header
-  # (header that carries the key, e.g. "api-key" for the HUIT gateway); optional params (sampling kwargs);
-  # optional target_strengths (overrides the list above); optional train_classifier (default true).
-  # type: mlm is the optional masked-LM control editor (edit_mlm.py), configured in configs/mlm_control.yaml.
-  editors: []
+  # (header that carries the key, e.g. "api-key" for the HUIT gateway); optional params (sampling kwargs, each
+  # model's recommended settings); optional target_strengths (a requested strength per job; the masked-LM control
+  # uses them); optional train_classifier (default true). Self-hosted editors run on their own pod, served by vLLM
+  # 0.32.0 at localhost:8000. type: mlm is the optional masked-LM control editor, in configs/mlm_control.yaml.
+  editors:
+    - name: gpt-oss-120b
+      model: openai/gpt-oss-120b   # revision b5c939de8f75
+      product: ChatGPT
+      base_url: http://localhost:8000/v1
+      heldout: false
+      params: {temperature: 1.0, top_p: 1.0, reasoning_effort: low, max_tokens: 4096}   # OpenAI's recommendation
+    - name: qwen3.5-122b
+      model: Qwen/Qwen3.5-122B-A10B-FP8   # revision a099dee70ccf
+      product: Qwen
+      base_url: http://localhost:8000/v1
+      heldout: true                # the held-out editor: never in classifier training
+      params: {temperature: 0.7, top_p: 0.8, presence_penalty: 1.5, max_tokens: 1024,   # Qwen's non-thinking settings
+               extra_body: {top_k: 20, min_p: 0.0, chat_template_kwargs: {enable_thinking: false}}}
+    - name: gemma-4-31b
+      model: google/gemma-4-31B-it   # revision 842da3794eaa
+      product: Gemma
+      base_url: http://localhost:8000/v1
+      heldout: false
+      params: {temperature: 1.0, top_p: 0.95, max_tokens: 1024,   # Google's recommended settings, thinking off
+               extra_body: {top_k: 64, chat_template_kwargs: {enable_thinking: false}}}
+    - name: glm-5.3-flash
+      model: zai-org/GLM-5.3-Flash   # revision 46a050bec130; 320B total, 18B active; 4 H200s
+      product: GLM
+      base_url: http://localhost:8000/v1
+      heldout: false
+      params: {temperature: 1.0, top_p: 0.95, reasoning_effort: low, max_tokens: 4096,   # its benchmark settings;
+               extra_body: {chat_template_kwargs: {clear_thinking: true}}}   # thinking cannot be turned off
+    # Light pass (decided 2026-10-31 by Ege): the same models with the "light" wording (edit.ASK), every split.
+    - {name: gpt-oss-120b-light, prompt: light, model: openai/gpt-oss-120b, product: ChatGPT,
+       base_url: "http://localhost:8000/v1", heldout: false,
+       params: {temperature: 1.0, top_p: 1.0, reasoning_effort: low, max_tokens: 4096}}
+    - {name: qwen3.5-122b-light, prompt: light, model: Qwen/Qwen3.5-122B-A10B-FP8, product: Qwen,
+       base_url: "http://localhost:8000/v1", heldout: true,
+       params: {temperature: 0.7, top_p: 0.8, presence_penalty: 1.5, max_tokens: 1024,
+                extra_body: {top_k: 20, min_p: 0.0, chat_template_kwargs: {enable_thinking: false}}}}
+    - {name: gemma-4-31b-light, prompt: light, model: google/gemma-4-31B-it, product: Gemma,
+       base_url: "http://localhost:8000/v1", heldout: false,
+       params: {temperature: 1.0, top_p: 0.95, max_tokens: 1024,
+                extra_body: {top_k: 64, chat_template_kwargs: {enable_thinking: false}}}}
+    - {name: glm-5.3-flash-light, prompt: light, model: zai-org/GLM-5.3-Flash, product: GLM,
+       base_url: "http://localhost:8000/v1", heldout: false,
+       params: {temperature: 1.0, top_p: 0.95, reasoning_effort: low, max_tokens: 4096,
+                extra_body: {chat_template_kwargs: {clear_thinking: true}}}}
 
 lm_scores:                     # one forward pass of both models gives all three zero-shot scores
   observer: tiiuae/falcon-7b
