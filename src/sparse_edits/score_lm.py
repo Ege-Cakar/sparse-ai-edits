@@ -1,6 +1,8 @@
 """Zero-shot sentence scores from one forward pass of an observer and a performer LM.
 
-Each sentence is scored in isolation (no document context). Writes scores/<name>.parquet (version_id, score):
+Each sentence is scored in isolation (no document context). Only versions in `lm_scores.splits` are scored (zero-shot
+scores need no training data; calibrate.py and phase.py use calib and test). Writes scores/<name>.parquet
+(version_id, score):
   log_likelihood  mean token log-prob under the observer (higher = more AI-like)
   fast_detectgpt  analytic sampling discrepancy, sampling model = observer, scoring model = performer
                   (Bao et al. 2024, get_sampling_discrepancy_analytic; higher = more AI-like)
@@ -35,14 +37,15 @@ def score_batch(texts, tok, observer, performer, max_tokens):
 def main():
     cfg, _ = cli(__doc__)
     c = cfg["lm_scores"]
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    dtype = torch.bfloat16 if device == "cuda" else torch.float32
+    device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+    dtype = torch.float32 if device == "cpu" else torch.bfloat16
     tok = AutoTokenizer.from_pretrained(c["observer"])
     tok.pad_token, tok.padding_side = tok.pad_token or tok.eos_token, "right"
     observer, performer = (AutoModelForCausalLM.from_pretrained(m, dtype=dtype).to(device).eval()
                            for m in (c["observer"], c["performer"]))
 
-    versions = pd.read_parquet(path(cfg, "versions.parquet"), columns=["version_id", "text"])
+    versions = pd.read_parquet(path(cfg, "versions.parquet"), columns=["version_id", "split", "text"])
+    versions = versions[versions.split.isin(c["splits"])].reset_index(drop=True)
     order = versions.text.str.len().argsort().to_numpy()            # length-sorted batches waste less padding
     texts, bs = versions.text.to_numpy()[order], c["batch_size"]
     batches = [score_batch(list(texts[i:i + bs]), tok, observer, performer, c["max_tokens"])
