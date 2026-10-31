@@ -17,7 +17,11 @@ setting is final. Open decisions are in
       the "edit" and "light" wordings over every editable train/val/test sentence (192,522 records per pass, one per
       sentence, in data/edits/). Accepted after up to 3 attempts, edit / light: gpt-oss 93.8% / 93.2%,
       Gemma 94.5% / 90.1%, Qwen 92.1% / 88.1%; the rest stay human (too_long, sentence_count_changed, unchanged).
-- [ ] Editing round 2: GLM 5.3 Flash ("edit" and "light"), then the API editors.
+- [ ] Editing round 2: GLM 5.3 Flash ("edit" and "light"), then the API editors. GLM on 4 H200s (2026-10-31, $17,
+      stopped): ~830 edits/min (a pass ~3.9 h, ~$82), prefill-bound. Its hybrid (Mamba) layers make vLLM 0.32 cache
+      prefixes in 1,152-token blocks, so most documents are re-read for every sentence (prefix hit rate 20%);
+      --max-num-batched-tokens 32768 crashes at startup (illegal memory access), 8192 works. Smoke test (1,000 edits):
+      93.5% accepted, no reasoning tokens at reasoning_effort low.
 - [x] Editing client for OpenAI-compatible endpoints, resumable, with rejection and resampling, as concurrent requests
       or through the Batch API (`edit.py --batch`; checked against the HUIT gateway).
 - [x] Diff labels: word-level edit count, measured strength, per-word AI mask, and `versions.parquet`

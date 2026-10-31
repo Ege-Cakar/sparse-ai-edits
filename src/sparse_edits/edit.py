@@ -162,7 +162,7 @@ async def run_editor(cfg, editor, docs, todo, out_path):
     client = openai.AsyncOpenAI(**client_args(editor))
     sem, failed = asyncio.Semaphore(e["concurrency"]), 0
     terminate_last_line(out_path)
-    with open(out_path, "a") as f, tqdm(total=len(todo), desc=editor["name"]) as bar:
+    with open(out_path, "a", buffering=1) as f, tqdm(total=len(todo), desc=editor["name"]) as bar:   # a line per record
         for i in range(0, len(todo), e["chunk_size"]):
             jobs = [edit_one(client, editor, docs, *job, e["max_attempts"], sem) for job in todo[i:i + e["chunk_size"]]]
             for fut in asyncio.as_completed(jobs):
