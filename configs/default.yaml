@@ -109,6 +109,14 @@ classifier:
     model: sentence-transformers/all-mpnet-base-v2
     batch_size: 256
 
+pretrained:                    # off-the-shelf AI-text classifiers, used as released (score_pretrained.py)
+  splits: [calib, test]
+  batch_size: 64
+  max_tokens: 128
+  detectors:                   # ai_label: the model's label for AI text; score = logit(ai) - logit(other)
+    - {name: openai_roberta, model: openai-community/roberta-base-openai-detector, ai_label: Fake}       # GPT-2 output, 2019
+    - {name: chatgpt_roberta, model: Hello-SimpleAI/chatgpt-detector-roberta, ai_label: ChatGPT}         # HC3, 2023
+
 calibrate:
   length_bins: 10              # null quantile bins on n_words of the tested sentence
 
