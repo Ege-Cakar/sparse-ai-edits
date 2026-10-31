@@ -11,6 +11,7 @@
                   document is dropped for a rejected edit.
                   Every random draw is seeded by its cell (cell_rng), never by call order, so all detectors
                   see the same windows and the same edited positions (common random numbers).
+                  phase_docs/<detector>.parquet: the same cells, one row per document (doc_n = its length).
 --what plot       figures/: for window mode, Gaussian power next to empirical cells placed at
                   r_eff = max(mu_eff, 0)^2 / (2 log n), with the theoretical boundaries on both.
 
@@ -110,7 +111,8 @@ def place_edits(h, a, m, rng):
 
 def run_cell(cells, theta, cfg, rng):
     """cells: list of (human p, edited p) matrices with equal n; edited p may be NaN where no edit was accepted.
-    Returns one row per null type (none if no docs)."""
+    Returns one row per null type (none if no docs); each row's "docs" holds its per-document outcomes, with the
+    document's length in doc_n."""
     if not sum(len(h) for h, _ in cells):
         return []
     draws, kept_human = [], 0
@@ -125,10 +127,11 @@ def run_cell(cells, theta, cfg, rng):
             print(f"theta={theta}: empirical null fit failed (non-concave); row skipped")
             continue
         outs = [outcomes(norm.sf((z - delta0) / sigma0), truth, cfg) for z, truth in draws]
+        per_doc = {k: np.concatenate([o[k] for o in outs]) for k in outs[0]}
+        docs = pd.DataFrame(dict(doc_n=np.concatenate([np.full(len(t), t.shape[1]) for _, t in draws]), **per_doc))
         rows.append(dict(theta=theta, null=null, delta0=delta0, sigma0=sigma0, n_docs=sum(len(t) for _, t in draws),
                          n_kept_human=kept_human, m_mean=np.concatenate([t.sum(axis=1) for _, t in draws]).mean(),
-                         **summarize({k: np.concatenate([o[k] for o in outs]) for k in outs[0]},
-                                     cfg["phase"]["ci_level"])))
+                         **summarize(per_doc, cfg["phase"]["ci_level"]), docs=docs))
     return rows
 
 
@@ -138,11 +141,20 @@ def rep_key(cfg, df):
             for e, r, s, k in zip(df.editor, df.target_r, df.sentence_id, df.rep)]
 
 
+CELL_KEYS = ["detector", "source", "mode", "n", "editor", "target_r", "theta", "null"]
+
+
 def empirical(cfg, detector, versions):
+    """(one row per cell, one row per document per cell). The second carries CELL_KEYS, doc_n (the document's
+    length; n is the window length, NaN in whole mode) and every per-document outcome, so results can be
+    regrouped (by length band, say) without rerunning."""
     pv = versions.merge(pd.read_parquet(path(cfg, "pvalues", f"{detector}.parquet")), on="version_id")
     test = pv[pv.split == "test"]
-    return pd.concat([empirical_source(cfg, s, versions[versions.source == s], test[test.source == s]).assign(source=s)
+    rows = pd.concat([empirical_source(cfg, s, versions[versions.source == s], test[test.source == s]).assign(source=s)
                       for s in sorted(versions.source.unique())]).assign(detector=detector)
+    docs = pd.concat([d.assign(**k) for k, d in zip(rows[CELL_KEYS].to_dict("records"), rows.docs)],
+                     ignore_index=True)
+    return rows.drop(columns="docs").reset_index(drop=True), docs[CELL_KEYS + [c for c in docs if c not in CELL_KEYS]]
 
 
 def empirical_source(cfg, source, versions, pv):
@@ -230,7 +242,9 @@ def main():
                                    columns=["version_id", "sentence_id", "source", "doc_id", "sent_idx", "split",
                                             "editor", "target_r", "rep", "actual_r"])
         for f in sorted(Path(cfg["data_dir"], "pvalues").glob("*.parquet")):
-            empirical(cfg, f.stem, versions).to_parquet(path(cfg, "phase", f.name), index=False)
+            cells, docs = empirical(cfg, f.stem, versions)
+            cells.to_parquet(path(cfg, "phase", f.name), index=False)
+            docs.to_parquet(path(cfg, "phase_docs", f.name), index=False)
     else:
         plot(cfg)
 
