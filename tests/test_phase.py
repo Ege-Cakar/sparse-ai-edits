@@ -51,7 +51,7 @@ def make_data(tmp_path, n_docs=60, n_sent=12, missing=0.1, seed=0):
             tmp_path / "pvalues" / f"{det}.parquet")
     cfg = dict(data_dir=str(tmp_path), seed=0, phase=dict(
         modes=["window"], window_n=[8], thetas=[0.5], alpha=0.05, bh_q=0.1, hc_alpha0=0.5, null_mc_reps=2000,
-        empirical_null_central=0.5, storey_lambda=0.5, ci_level=0.95))
+        empirical_null_central=0.5, storey_lambda=0.5, ci_level=0.95, whole_min_sentences=1))
     return cfg, versions
 
 
@@ -90,3 +90,13 @@ def test_per_document_rows_reproduce_cell_means(tmp_path):
     assert docs.mu_doc[edited].notna().all() and docs.mu_doc[~edited].isna().all()
     conformal = docs[edited & (docs["null"] == "conformal")]
     assert 1.0 < conformal.mu_doc.mean() < 3.0                  # detector "a" shifts edited z by 2
+
+
+def test_whole_mode_skips_short_documents():
+    lengths = [3, 5, 16, 16, 40]
+    versions = pd.DataFrame([dict(sentence_id=100 * d + j, doc_id=d, sent_idx=j, split="test", editor="human")
+                             for d, n in enumerate(lengths) for j in range(n)])
+    rng = np.random.default_rng(0)
+    groups = phase.test_documents(versions, "whole", np.nan, rng, min_whole=16)
+    assert sorted(g.shape for g in groups) == [(1, 40), (2, 16)]
+    assert len(phase.test_documents(versions, "whole", np.nan, rng)) == 4      # default keeps every length
