@@ -86,3 +86,7 @@ def test_per_document_rows_reproduce_cell_means(tmp_path):
     merged = cells.merge(regrouped, on=phase.CELL_KEYS, suffixes=("", "_docs"))
     assert len(merged) == len(cells)
     assert np.allclose(merged.reject_hc, merged.reject_hc_docs) and np.allclose(merged.eps_storey, merged.eps_storey_docs)
+    edited = docs.eps_true > 0
+    assert docs.mu_doc[edited].notna().all() and docs.mu_doc[~edited].isna().all()
+    conformal = docs[edited & (docs["null"] == "conformal")]
+    assert 1.0 < conformal.mu_doc.mean() < 3.0                  # detector "a" shifts edited z by 2
