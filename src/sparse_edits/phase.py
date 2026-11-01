@@ -112,7 +112,8 @@ def place_edits(h, a, m, rng):
 def run_cell(cells, theta, cfg, rng):
     """cells: list of (human p, edited p) matrices with equal n; edited p may be NaN where no edit was accepted.
     Returns one row per null type (none if no docs); each row's "docs" holds its per-document outcomes, with the
-    document's length in doc_n."""
+    document's length in doc_n and mu_doc, the mean z of its edited sentences on the scale the tests used (NaN if
+    none was edited)."""
     if not sum(len(h) for h, _ in cells):
         return []
     draws, kept_human = [], 0
@@ -128,7 +129,10 @@ def run_cell(cells, theta, cfg, rng):
             continue
         outs = [outcomes(norm.sf((z - delta0) / sigma0), truth, cfg) for z, truth in draws]
         per_doc = {k: np.concatenate([o[k] for o in outs]) for k in outs[0]}
-        docs = pd.DataFrame(dict(doc_n=np.concatenate([np.full(len(t), t.shape[1]) for _, t in draws]), **per_doc))
+        mu_doc = [np.where(t.any(axis=1), ((z - delta0) / sigma0 * t).sum(axis=1) / np.maximum(t.sum(axis=1), 1), np.nan)
+                  for z, t in draws]
+        docs = pd.DataFrame(dict(doc_n=np.concatenate([np.full(len(t), t.shape[1]) for _, t in draws]),
+                                 mu_doc=np.concatenate(mu_doc), **per_doc))
         rows.append(dict(theta=theta, null=null, delta0=delta0, sigma0=sigma0, n_docs=sum(len(t) for _, t in draws),
                          n_kept_human=kept_human, m_mean=np.concatenate([t.sum(axis=1) for _, t in draws]).mean(),
                          **summarize(per_doc, cfg["phase"]["ci_level"]), docs=docs))
