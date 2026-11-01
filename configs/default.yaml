@@ -42,8 +42,9 @@ edit:
   # (header that carries the key, e.g. "api-key" for the HUIT gateway); optional params (sampling kwargs, each
   # model's recommended settings); optional target_strengths (a requested strength per job; the masked-LM control
   # uses them); optional train_classifier (default true); optional api: anthropic (Messages API, --batch only, the
-  # document cached); optional cache_key (per-document prompt_cache_key, OpenAI). Self-hosted editors run on their own
-  # pod, served by vLLM 0.32.0 at localhost:8000. type: mlm is the optional masked-LM control editor, in
+  # document cached); optional cache_key (per-document prompt_cache_key, OpenAI); optional batch_limits (batch_size,
+  # batch_mb and max_queued, the batches in flight at once, for a vendor's queue limit). Self-hosted editors run on
+  # their own pod, served by vLLM 0.32.0 at localhost:8000. type: mlm is the optional masked-LM control editor, in
   # configs/mlm_control.yaml.
   editors:
     - name: gpt-oss-120b
@@ -81,6 +82,7 @@ edit:
       heldout: false
       params: {reasoning_effort: none, max_completion_tokens: 1024}   # reasoning off
       price: {input: 0.05, cache_read: 0.005, output: 0.25}   # $/M tokens at batch rates (OpenRouter listing, 2026-11-01)
+      batch_limits: {batch_mb: 60, max_queued: 1}   # OpenAI queues at most 20M prompt tokens for this model (~100 MB)
     - name: claude-haiku-5.5       # Anthropic Message Batches; sampling parameters are not accepted, so defaults
       model: claude-haiku-5-5
       product: Claude
@@ -107,7 +109,7 @@ edit:
                 extra_body: {chat_template_kwargs: {clear_thinking: true}}}}
     - {name: gpt-6-luna-light, prompt: light, model: gpt-6-luna, product: ChatGPT, api_key_env: OPENAI_API_KEY,
        cache_key: true, heldout: false, params: {reasoning_effort: none, max_completion_tokens: 1024},
-       price: {input: 0.05, cache_read: 0.005, output: 0.25}}
+       price: {input: 0.05, cache_read: 0.005, output: 0.25}, batch_limits: {batch_mb: 60, max_queued: 1}}
     - {name: claude-haiku-5.5-light, prompt: light, model: claude-haiku-5-5, product: Claude, api: anthropic,
        api_key_env: ANTHROPIC_API_KEY, heldout: false, params: {max_tokens: 1024, thinking: {type: disabled}},
        price: {input: 0.05, cache_read: 0.005, cache_write: 0.0625, output: 0.25}}

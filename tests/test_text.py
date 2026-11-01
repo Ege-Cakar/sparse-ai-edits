@@ -85,6 +85,20 @@ def test_run_batches_stops_before_a_batch_that_would_pass_the_cap(monkeypatch, t
     assert sent == [10, 10] and json.loads((tmp_path / "e.jsonl.batches").read_text()) == ["b1", "b2"]
 
 
+def test_run_batches_queues_at_most_max_queued_batches_and_carries_the_rest(monkeypatch, tmp_path):
+    from sparse_edits import edit
+    rounds = []
+    monkeypatch.setattr(edit, "groups", lambda editor, by_id, docs, jobs, *a: iter([[(custom_id(*j), {})] for j in jobs]))
+    monkeypatch.setattr(edit, "submit", lambda client, editor, group: rounds.append(group[0][0]) or "b")
+    monkeypatch.setattr(edit, "collect", lambda *a: [(1, None, 0, 2)] if rounds == [custom_id(1, None, 0, 1)] else [])
+    cfg = {"edit": {"batch_size": 1, "batch_mb": 1, "max_attempts": 3}}
+    jobs = [(i, None, 0, 1) for i in range(1, 4)]
+    edit.run_batches(cfg, {"name": "e", "model": "m", "batch_limits": {"max_queued": 1}}, None, None, jobs,
+                     tmp_path / "e.jsonl")
+    # one batch per round; the unsent jobs go first, then the resample of job 1
+    assert rounds == [custom_id(*j) for j in jobs + [(1, None, 0, 2)]]
+
+
 def test_batch_ids_round_trip_and_groups_stay_under_limits():
     for job in [(12, None, 0, 3), (7, 0.25, 1, 2)]:
         assert parse_id(custom_id(*job)) == job and re.fullmatch(r"[A-Za-z0-9_-]+", custom_id(*job))
