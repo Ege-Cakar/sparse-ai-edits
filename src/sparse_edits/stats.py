@@ -67,6 +67,10 @@ def null_thresholds(n, alpha, alpha0, reps, seed, rho=0.0):
     rho = 0: iid Uniform(0, 1) p-values. rho > 0: equicorrelated null documents, z_j = sqrt(rho) a +
     sqrt(1 - rho) e_j with a, e_j iid N(0, 1) and p_j = 1 - Phi(z_j): each p_j is still Uniform(0, 1), and
     every pair of sentences in a document has correlation rho in z (a shared author / topic effect).
+
+    Caveat: equicorrelation is the simplest dependence model (one rho per source). On the pilot data it brings type
+    I error to 0.04-0.06, near but not exactly at alpha; correlation that decays with distance (Toeplitz) or depends
+    on the document is not captured.
     """
     rng = np.random.default_rng(seed)
     if rho == 0:
