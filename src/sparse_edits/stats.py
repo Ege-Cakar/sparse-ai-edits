@@ -5,6 +5,7 @@ Matrices are (documents, n sentences). Global test statistics are oriented so la
 from functools import cache
 
 import numpy as np
+import pandas as pd
 from scipy.stats import norm
 
 
@@ -59,12 +60,35 @@ def global_tests(alpha0):
 
 
 @cache
-def null_thresholds(n, alpha, alpha0, reps, seed):
-    """Level-alpha critical values of each global test under iid Uniform(0, 1) p-values, by Monte Carlo, plus
-    "hc_all": HC over every i (alpha0 = 1), the bounding constant of eps_lower."""
-    p = np.random.default_rng(seed).random((reps, n))
+def null_thresholds(n, alpha, alpha0, reps, seed, rho=0.0):
+    """Level-alpha critical values of each global test by Monte Carlo, plus "hc_all": HC over every i
+    (alpha0 = 1), the bounding constant of eps_lower.
+
+    rho = 0: iid Uniform(0, 1) p-values. rho > 0: equicorrelated null documents, z_j = sqrt(rho) a +
+    sqrt(1 - rho) e_j with a, e_j iid N(0, 1) and p_j = 1 - Phi(z_j): each p_j is still Uniform(0, 1), and
+    every pair of sentences in a document has correlation rho in z (a shared author / topic effect).
+    """
+    rng = np.random.default_rng(seed)
+    if rho == 0:
+        p = rng.random((reps, n))
+    else:
+        p = norm.sf(np.sqrt(rho) * rng.standard_normal((reps, 1)) + np.sqrt(1 - rho) * rng.standard_normal((reps, n)))
     out = {name: np.quantile(f(p), 1 - alpha) for name, f in global_tests(alpha0).items()}
     return out | {"hc_all": np.quantile(hc(p, 1.0), 1 - alpha)}
+
+
+def intraclass_correlation(z, groups):
+    """One-way ANOVA estimate of the correlation of z within groups (documents), floored at 0; groups with a
+    single member are ignored. Unbiased for the equicorrelated model of null_thresholds at any group sizes."""
+    df = pd.DataFrame({"z": z, "g": groups})
+    df = df[df.groupby("g").z.transform("size") >= 2]
+    k = df.groupby("g").z.agg(["mean", "var", "size"])
+    if len(k) < 2:
+        return np.nan
+    msw = (k["var"] * (k["size"] - 1)).sum() / (k["size"] - 1).sum()
+    msb = (k["size"] * (k["mean"] - df.z.mean()) ** 2).sum() / (len(k) - 1)
+    n0 = (k["size"].sum() - (k["size"] ** 2).sum() / k["size"].sum()) / (len(k) - 1)
+    return max(0.0, (msb - msw) / (msb + (n0 - 1) * msw))
 
 
 def bh(p, q):

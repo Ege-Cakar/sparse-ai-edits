@@ -2,7 +2,13 @@
 
 Null: human sentences of the calib split from the same source. Writes pvalues/<detector>.parquet
 (version_id, p) for all versions outside the calib split.
+
+Also writes pvalues_calib/<detector>.parquet (version_id, p, fold) for the calib sentences themselves, cross-fitted:
+calib documents are split in two folds (by a hash of seed and doc_id, the same for every detector), and each fold's
+sentences get p-values against the other fold. These are human documents with realistic p-values, from which
+phase.py estimates the within-document correlation. A separate random stream leaves pvalues/ unchanged.
 """
+import zlib
 from pathlib import Path
 
 import numpy as np
@@ -17,7 +23,7 @@ HIGHER_IS_HUMAN = {"binoculars"}   # all other scores are oriented higher = more
 def main():
     cfg, _ = cli(__doc__)
     versions = pd.read_parquet(path(cfg, "versions.parquet"),
-                               columns=["version_id", "source", "split", "editor", "n_words"])
+                               columns=["version_id", "source", "doc_id", "split", "editor", "n_words"])
     for f in sorted(Path(cfg["data_dir"], "scores").glob("*.parquet")):
         df = versions.merge(pd.read_parquet(f), on="version_id")
         df["score"] *= -1 if f.stem in HIGHER_IS_HUMAN else 1
@@ -30,6 +36,24 @@ def main():
             out.append(pd.DataFrame({"version_id": test.version_id, "p": p}))
             print(f"{f.stem} / {source}: {len(null)} null sentences, {np.isnan(p).sum()} NaN p-values")
         pd.concat(out).to_parquet(path(cfg, "pvalues", f.name), index=False)
+        cross_fit_calib(cfg, df).to_parquet(path(cfg, "pvalues_calib", f.name), index=False)
+
+
+def calib_fold(cfg, doc_ids):
+    return np.array([zlib.crc32(repr((cfg["seed"], int(d))).encode()) % 2 for d in doc_ids])
+
+
+def cross_fit_calib(cfg, df):
+    """p-values of human calib sentences, each against the calib sentences of the other fold of its source."""
+    rng, out = np.random.default_rng([cfg["seed"], 1]), []
+    for _, g in df[(df.split == "calib") & (df.editor == "human")].groupby("source"):
+        fold = calib_fold(cfg, g.doc_id)
+        for k in (0, 1):
+            null, test = g[fold != k], g[fold == k]
+            p = conformal_pvalues(null.score.to_numpy(), null.n_words.to_numpy(), test.score.to_numpy(),
+                                  test.n_words.to_numpy(), cfg["calibrate"]["length_bins"], rng)
+            out.append(pd.DataFrame({"version_id": test.version_id, "p": p, "fold": k}))
+    return pd.concat(out)
 
 
 if __name__ == "__main__":

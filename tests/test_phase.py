@@ -100,3 +100,33 @@ def test_whole_mode_skips_short_documents():
     groups = phase.test_documents(versions, "whole", np.nan, rng, min_whole=16)
     assert sorted(g.shape for g in groups) == [(1, 40), (2, 16)]
     assert len(phase.test_documents(versions, "whole", np.nan, rng)) == 4      # default keeps every length
+
+
+def test_cross_fit_calib_gives_each_calib_sentence_one_p_value_from_the_other_fold():
+    from sparse_edits.calibrate import calib_fold, cross_fit_calib
+    rng = np.random.default_rng(0)
+    df = pd.DataFrame(dict(version_id=np.arange(4000), source="s", doc_id=np.repeat(np.arange(200), 20),
+                           split="calib", editor="human", n_words=rng.integers(5, 30, 4000),
+                           score=rng.standard_normal(4000)))
+    cfg = dict(seed=0, calibrate=dict(length_bins=5))
+    out = cross_fit_calib(cfg, df)
+    assert sorted(out.version_id) == list(range(4000)) and out.p.between(0, 1).all()
+    folds = df.assign(fold=calib_fold(cfg, df.doc_id)).groupby("doc_id").fold.nunique()
+    assert (folds == 1).all() and 0.4 < calib_fold(cfg, df.doc_id).mean() < 0.6   # whole documents per fold
+
+
+def test_dependent_null_rows_use_calib_correlation(tmp_path):
+    cfg, versions = make_data(tmp_path)
+    cells, _ = phase.empirical(cfg, "a", versions)
+    assert "conformal_dependent" not in set(cells["null"])                    # no calib p-values yet
+    rng = np.random.default_rng(1)
+    human = versions[versions.editor == "human"]
+    z = np.sqrt(0.3) * rng.standard_normal(human.doc_id.max() + 1)[human.doc_id] + np.sqrt(0.7) * rng.standard_normal(len(human))
+    (tmp_path / "pvalues_calib").mkdir()
+    pd.DataFrame({"version_id": human.version_id, "p": norm.sf(z), "fold": 0}).to_parquet(
+        tmp_path / "pvalues_calib" / "a.parquet")
+    cells, docs = phase.empirical(cfg, "a", versions)
+    dep = cells[cells["null"] == "conformal_dependent"]
+    assert len(dep) == len(cells[cells["null"] == "conformal"]) and abs(dep.rho.iloc[0] - 0.3) < 0.1
+    assert (cells[cells["null"] != "conformal_dependent"].rho == 0).all()
+    assert set(docs["null"]) >= {"conformal", "conformal_dependent"}
