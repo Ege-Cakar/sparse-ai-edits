@@ -341,6 +341,10 @@ preliminary choice, where it lives, and what to check.
       Alternatives: Efron's MLE method; a single fit on a mostly-null set.
 41. Within-document dependence and PC-adjusted HC. TBD.
     - Preliminary: not handled; p-values within a document are treated as independent.
+    - Measured 2026-11-01 (Rui, [pilot-results.md](pilot-results.md)): intraclass correlation of human sentence z
+      within test documents is 0.07-0.28 per source for the HC3 RoBERTa detector, and on human-only documents
+      (n >= 16) Stouffer rejects 24%, HC+ 17%, HC 9%, min-p 6% at nominal 5%. Proposed fix there: thresholds under a
+      Sigma estimated from a held-out half of calib.
     - Review: author style shifts all sentences of a document together. The PC adjustment from lecture still has to
       be specified.
 
