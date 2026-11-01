@@ -22,6 +22,12 @@ setting is final. Open decisions are in
       prefixes in 1,152-token blocks, so most documents are re-read for every sentence (prefix hit rate 20%);
       --max-num-batched-tokens 32768 crashes at startup (illegal memory access), 8192 works. Smoke test (1,000 edits):
       93.5% accepted, no reasoning tokens at reasoning_effort low.
+      GLM done 2026-11-01 on kempner_requeue (slurm/edit_glm.sbatch; 4 H200s per pass, ~1,500-2,000 edits/min,
+      ~2-2.5 h of running each across 6-8 preemptions per job, no records lost). Accepted, edit / light: 94.7% / 90.8%.
+      Claude Haiku 5.5 done 2026-11-01 (Anthropic Message Batches, document cached; $18.32 / $17.65, 70% / 83% of
+      input tokens from cache): 87.8% / 77.1% accepted (light: 15.4% left unchanged after 3 attempts).
+      gpt-6-luna: 1,000-sentence pilot per pass ($0.06 / $0.07, 92.8% / 86.6% accepted; prompt caching gave ~0%
+      hits in the Batch API, even above 1,024 tokens). Full passes awaiting go-ahead (~$24 projected).
 - [x] Editing client for OpenAI-compatible endpoints, resumable, with rejection and resampling, as concurrent requests
       or through the Batch API (`edit.py --batch`; checked against the HUIT gateway).
 - [x] Diff labels: word-level edit count, measured strength, per-word AI mask, and `versions.parquet`

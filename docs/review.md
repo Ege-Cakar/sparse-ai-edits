@@ -154,6 +154,12 @@ preliminary choice, where it lives, and what to check.
       GLM 5.3 Flash (320B, 18B active, MIT) was set up on 4 H200s and dropped the same day to stay within the RunPod
       credit ($149); to run later. Rates on 2026-10-31: gpt-oss 3,600 edits/min (H200), Gemma 4 1,950 (H200),
       Qwen3.5 1,390 (B200); after 3 attempts 7.2%, 5.4% and 8.8% of sentences stay unedited.
+    - 2026-11-01 (Ege): gpt-6-luna (reasoning_effort none) and Claude Haiku 5.5 (thinking disabled) join as training
+      editors, both wordings, every split, at most $50 each, through each vendor's Batch API (half price) with
+      prompt caching: Anthropic requests mark the document part (after the system prompt) as a cached prefix;
+      OpenAI requests carry a per-document prompt_cache_key. Neither model accepts sampling parameters, so both
+      sample at their defaults. A 1,000-request pilot per editor and wording (seeded whole documents) measures
+      tokens, cache hits and rejections; its records are part of the dataset, so the full run skips them.
     - Review: whether to hold out Qwen 3.5 (an unseen lab) and also hold out other versions of training editors (an
       idea from Ege) to test version generalization. Open-weight models through OpenRouter can be served by
       different providers, some with quantized weights: pin a provider and record it. Turn reasoning off where the
@@ -220,8 +226,8 @@ preliminary choice, where it lives, and what to check.
     - Review: the proposal aims for up to about 100 versions per sentence in the detection set (10 editors x 7
       strengths gives 70); whether training samples are drawn independently per editor or shared across editors
       (same sentences and strengths, a paired design). `edit --dry-run` prints request counts.
-19. Which splits are edited. TBD.
-    - Preliminary: train, val, test; calib stays human-only (`edit.splits`).
+19. Which splits are edited. Decided 2026-10-31 by Ege: train, val, test; calib stays human-only (`edit.splits`),
+    for every editor and wording, the held-out one included.
 20. Sampling parameters and reasoning effort. Decided 2026-10-31 by Ege: each model's recommended settings.
     - gpt-oss-120b: temperature 1.0, top_p 1.0 (OpenAI), `reasoning_effort: low` (the lowest it has; vLLM rejects
       none), max_tokens 4096 counting reasoning; the reasoning text is not saved. Qwen3.5-122B: thinking off, Qwen's
@@ -303,6 +309,37 @@ preliminary choice, where it lives, and what to check.
 33. Fine-tuned classifier. TBD.
     - Preliminary: `answerdotai/ModernBERT-base`, lr 3e-5, 2 epochs, batch 64, max 128 tokens, best epoch by val loss,
       no hyperparameter search. Score = logit(edited) - logit(human).
+    - Decided 2026-10-31 by Ege: search both detectors (isolated sentence; document with the target sentence marked)
+      at once, over embedding models with a trained head, fine-tuned modern encoders and fine-tuned decoder LLMs, as a
+      small grid on a train subsample. Every run logs val loss, AUROC and TPR at 0.1%, 1% and 5% FPR; the winner is
+      the highest TPR at 1% FPR (the probability that an edited sentence gets p <= 0.01, which drives HC and
+      Bonferroni). Selection uses only the training editors' val edits (gpt-oss, Gemma, later GLM 5.3 Flash, which
+      becomes a training editor); Qwen3.5 val and test stay untouched until the final model. Val metrics are also
+      reported per training editor, pass ("edit", "light") and source, so in-distribution detection is checked
+      editor by editor before any held-out test.
+    - Decided 2026-11-01 by Ege, isolated-sentence grid (20% of train documents): frozen embedders with a
+      logistic-regression head (Qwen3-Embedding 0.6B/4B/8B, EmbeddingGemma-300m, Llama-Embed-Nemotron-8B);
+      encoders fine-tuned end to end (DeBERTa-v3-large, ModernBERT-large, Ettin-encoder-1B) x 3 learning rates x
+      2 weightings (global class weights vs per-sentence weights); decoders with LoRA and a classification head
+      (Llama-3.1-8B, OLMo-3-7B, Ettin-decoder-1B) x 2 learning rates. A Qwen decoder as a family-bias arm was not
+      chosen. Class imbalance: inverse-frequency class weights in the cross-entropy.
+    - Decided 2026-11-01 by Ege, document detector (backbones ModernBERT-large, Ettin-encoder-1B, Llama-3.1-8B,
+      started in parallel with the isolated grid):
+      - Training versions: splits are by document and fixed first; versions are built from train documents only.
+        Per document of n sentences: one all-human version, plus, for every training editor and pass, one version per
+        theta in {0.1, ..., 0.9} with m = round(n^(1 - theta)) sentences replaced by that editor-pass's accepted
+        edits (one editor-pass per version, as in the phase-diagram documents). Val documents get versions once, by
+        the same recipe with a fixed seed, saved with their edit positions and reused by every run.
+      - Every sentence of every version is a labelled example (edited 1, human 0), class-weighted.
+      - One pass per version: encoders pool each sentence's tokens and label all sentences at once. Llama reads the
+        document followed by each sentence repeated as its probe; an attention mask lets a probe see the document
+        but not the other probes, so a sentence's score depends only on the document; the probe's tokens are pooled.
+      - Long documents are cut at the end and the remainder becomes the next chunk, at sentence boundaries, so every
+        sentence is labelled. Chunk length: proposed 2,048 tokens, not confirmed.
+      - Caveats: each swapped-in edit was generated against the all-human document, so multi-edit versions are
+        stitched from independent single-sentence edits (test documents are built the same way); a human sentence's
+        score depends on its neighbors (item 27), so per-sentence p-values for recovery are not exactly uniform in
+        edited documents, while the all-human calib documents still give a valid null for the global test.
 34. Embedding baseline. TBD.
     - Preliminary: `sentence-transformers/all-mpnet-base-v2`, normalized embeddings, `LogisticRegressionCV(Cs=10, cv=5)`.
     - Review: semantic embedders are trained to ignore paraphrase, so they may be a poor fit for edit detection; a

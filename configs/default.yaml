@@ -34,14 +34,17 @@ edit:
   max_attempts: 3              # resample when output is empty, unchanged, or splits/merges Punkt sentences
   concurrency: 256
   chunk_size: 5000
-  batch_size: 50000            # --batch: requests per Batch API job
+  batch_size: 50000            # --batch: requests per Batch API job (OpenAI allows 50,000, Anthropic 100,000)
+  batch_mb: 150                # and at most this many MB of requests (OpenAI allows 200, Anthropic 256)
   # Each entry: name, model, product (the name in the system prompt, e.g. ChatGPT or Claude), heldout (bool);
   # optional api_key_env (omit for self-hosted vLLM); optional base_url or base_url_env
   # (an OpenAI-compatible URL, or the env var holding it; omit both for the OpenAI default); optional auth_header
   # (header that carries the key, e.g. "api-key" for the HUIT gateway); optional params (sampling kwargs, each
   # model's recommended settings); optional target_strengths (a requested strength per job; the masked-LM control
-  # uses them); optional train_classifier (default true). Self-hosted editors run on their own pod, served by vLLM
-  # 0.32.0 at localhost:8000. type: mlm is the optional masked-LM control editor, in configs/mlm_control.yaml.
+  # uses them); optional train_classifier (default true); optional api: anthropic (Messages API, --batch only, the
+  # document cached); optional cache_key (per-document prompt_cache_key, OpenAI). Self-hosted editors run on their own
+  # pod, served by vLLM 0.32.0 at localhost:8000. type: mlm is the optional masked-LM control editor, in
+  # configs/mlm_control.yaml.
   editors:
     - name: gpt-oss-120b
       model: openai/gpt-oss-120b   # revision b5c939de8f75
@@ -70,6 +73,22 @@ edit:
       heldout: false
       params: {temperature: 1.0, top_p: 0.95, reasoning_effort: low, max_tokens: 4096,   # its benchmark settings;
                extra_body: {chat_template_kwargs: {clear_thinking: true}}}   # thinking cannot be turned off
+    - name: gpt-6-luna             # OpenAI Batch API; sampling parameters are not accepted, so defaults
+      model: gpt-6-luna
+      product: ChatGPT
+      api_key_env: OPENAI_API_KEY
+      cache_key: true
+      heldout: false
+      params: {reasoning_effort: none, max_completion_tokens: 1024}   # reasoning off
+      price: {input: 0.05, cache_read: 0.005, output: 0.25}   # $/M tokens at batch rates (OpenRouter listing, 2026-11-01)
+    - name: claude-haiku-5.5       # Anthropic Message Batches; sampling parameters are not accepted, so defaults
+      model: claude-haiku-5-5
+      product: Claude
+      api: anthropic
+      api_key_env: ANTHROPIC_API_KEY
+      heldout: false
+      params: {max_tokens: 1024, thinking: {type: disabled}}   # thinking off (allowed at the default effort, medium)
+      price: {input: 0.05, cache_read: 0.005, cache_write: 0.0625, output: 0.25}   # batch rates, 5-min cache writes
     # Light pass (decided 2026-10-31 by Ege): the same models with the "light" wording (edit.ASK), every split.
     - {name: gpt-oss-120b-light, prompt: light, model: openai/gpt-oss-120b, product: ChatGPT,
        base_url: "http://localhost:8000/v1", heldout: false,
@@ -86,6 +105,12 @@ edit:
        base_url: "http://localhost:8000/v1", heldout: false,
        params: {temperature: 1.0, top_p: 0.95, reasoning_effort: low, max_tokens: 4096,
                 extra_body: {chat_template_kwargs: {clear_thinking: true}}}}
+    - {name: gpt-6-luna-light, prompt: light, model: gpt-6-luna, product: ChatGPT, api_key_env: OPENAI_API_KEY,
+       cache_key: true, heldout: false, params: {reasoning_effort: none, max_completion_tokens: 1024},
+       price: {input: 0.05, cache_read: 0.005, output: 0.25}}
+    - {name: claude-haiku-5.5-light, prompt: light, model: claude-haiku-5-5, product: Claude, api: anthropic,
+       api_key_env: ANTHROPIC_API_KEY, heldout: false, params: {max_tokens: 1024, thinking: {type: disabled}},
+       price: {input: 0.05, cache_read: 0.005, cache_write: 0.0625, output: 0.25}}
 
 lm_scores:                     # one forward pass of both models gives all three zero-shot scores
   observer: tiiuae/falcon-7b

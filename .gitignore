@@ -7,3 +7,5 @@ data/*
 !data/edits/
 *.egg-info/
 .env
+data/edits/*.batches
+data/edits/*.usage

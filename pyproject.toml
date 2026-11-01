@@ -24,6 +24,7 @@ dependencies = [
     "sentence-transformers",
     "scikit-learn",
     "matplotlib",
+    "anthropic>=2.3.0",
 ]
 
 [dependency-groups]
