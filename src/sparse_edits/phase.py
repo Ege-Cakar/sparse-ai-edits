@@ -79,14 +79,15 @@ def simulate(cfg, n):
     return pd.DataFrame(rows)
 
 
-def test_documents(versions, mode, n, rng):
+def test_documents(versions, mode, n, rng, min_whole=1):
     """(docs, n) sentence_id matrices of test-split documents: one random window of n consecutive sentences
-    per doc with at least n (window), or whole docs grouped by length (whole)."""
+    per doc with at least n (window), or whole docs with at least min_whole sentences, grouped by length (whole)."""
     human = versions[(versions.split == "test") & (versions.editor == "human")].sort_values(["doc_id", "sent_idx"])
     docs = human.groupby("doc_id").sentence_id.apply(np.array)
     if mode == "window":
         windows = [d[s:s + n] for d in docs if len(d) >= n for s in [rng.integers(len(d) - n + 1)]]
         return [np.stack(windows)] if windows else []
+    docs = docs[docs.map(len) >= min_whole]
     return [np.stack(list(g)) for _, g in docs.groupby(docs.map(len))]
 
 
@@ -171,7 +172,7 @@ def empirical_source(cfg, source, versions, pv):
     designs += [("whole", np.nan)] if "whole" in c["modes"] else []
     rows = []
     for mode, n in designs:
-        groups = test_documents(versions, mode, n, cell_rng(cfg, "window", source, mode, n))
+        groups = test_documents(versions, mode, n, cell_rng(cfg, "window", source, mode, n), c["whole_min_sentences"])
         if not groups:
             print(f"{source}: no test documents with at least {n} sentences; {mode} n={n} skipped")
             continue

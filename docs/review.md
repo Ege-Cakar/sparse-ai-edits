@@ -367,6 +367,26 @@ preliminary choice, where it lives, and what to check.
 46. Document unit. TBD.
     - Preliminary: per source, window mode takes one random window of n consecutive eligible sentences from each test
       document with at least n; whole mode uses whole documents grouped by n (`phase.modes`).
+    - Preliminary (2026-10-31, Rui): whole mode skips test documents under 16 sentences
+      (`phase.whole_min_sentences`); the corpus itself still keeps 3-512 (item 12). Test-split lengths of the frozen
+      corpus (sha256 8fba77d9): 2,914 documents, median 14 sentences, 3 to 479.
+
+      | source | docs | median n | docs >= 16 | sentences in them | docs >= 32 |
+      |---|---|---|---|---|---|
+      | ellipse | 376 | 19 | 231 | 6,044 | 46 |
+      | enron | 1,010 | 5 | 77 | 1,977 | 14 |
+      | fineweb_edu | 218 | 23 | 149 | 7,101 | 83 |
+      | openreview | 344 | 19 | 207 | 6,141 | 58 |
+      | persuade | 349 | 20 | 241 | 6,309 | 51 |
+      | pes2o | 38 | 190 | 38 | 7,642 | 38 |
+      | writingprompts | 175 | 36 | 155 | 7,300 | 101 |
+      | xsum | 404 | 16 | 203 | 5,458 | 52 |
+      | all | 2,914 | 14 | 1,301 | 47,972 (79%) | 443 |
+
+    - Review: 16 matches the smaller window and keeps at least 77 documents per source; 32 would leave Enron with
+      14. A cutoff changes the source mix (Enron is mostly 3-8 sentences, peS2o all 41+), so report per source and
+      per length band rather than pooled. peS2o has 38 test documents at any cutoff, so its intervals are wide.
+      Monte Carlo thresholds are computed per distinct length (124 lengths >= 16, about 3 minutes at 100,000 reps).
 47. Window lengths. TBD.
     - Preliminary: n in {16, 32} (`phase.window_n`).
     - Review: few test documents have 32 eligible sentences (item 12); at small n the asymptotic boundaries are loose.

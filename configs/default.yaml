@@ -114,6 +114,7 @@ calibrate:
 phase:
   modes: [window, whole]
   window_n: [16, 32]
+  whole_min_sentences: 16      # whole mode skips shorter test documents (review.md item 46)
   thetas: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]   # m = round(n^(1 - theta)) edited sentences
   alpha: 0.05                  # level for global tests and Bonferroni recovery
   bh_q: 0.1
