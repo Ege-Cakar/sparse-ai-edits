@@ -21,6 +21,7 @@ import json
 import os
 import re
 import time
+from itertools import islice
 from pathlib import Path
 
 import anthropic
@@ -283,25 +284,30 @@ def spent(editor, out_path):
 
 
 def run_batches(cfg, editor, by_id, docs, jobs, out_path, max_usd=None):
-    """Submit jobs in batches under edit.batch_size requests and edit.batch_mb MB, recording each batch id in the state
-    file as soon as it is submitted; collect them and repeat with the jobs to resample. Batches already in the state
+    """Submit jobs in batches under edit.batch_size requests and edit.batch_mb MB (the editor's batch_limits override
+    these), at most max_queued batches per round, recording each batch id in the state file as soon as it is
+    submitted; collect them and repeat with the jobs not yet sent and those to resample. Batches already in the state
     file are collected first. With max_usd, a batch is submitted only if the spend so far plus the batch at the cost
     per request measured so far (the pilot's, at first) stays under it."""
-    e, state = cfg["edit"], Path(f"{out_path}.batches")
+    e, state = cfg["edit"] | editor.get("batch_limits", {}), Path(f"{out_path}.batches")
     client = (anthropic.Anthropic(api_key=os.environ[editor["api_key_env"]], max_retries=8)
               if editor.get("api") == "anthropic" else openai.OpenAI(**client_args(editor)))
     while jobs or state.exists():
         cost, n = spent(editor, out_path) if max_usd else (0.0, 0)
         rate = cost / n if n else None   # dollars per request so far, fixed for this round
-        for group in groups(editor, by_id, docs, jobs, e["batch_size"], e["batch_mb"] * 2**20):
+        sent = set()
+        for group in islice(groups(editor, by_id, docs, jobs, e["batch_size"], e["batch_mb"] * 2**20),
+                            e.get("max_queued")):
             if max_usd and (rate is None or cost + rate * len(group) > max_usd):
                 raise SystemExit(f"{editor['name']}: ${cost:.2f} spent or committed; the next {len(group)} requests "
                                  f"would pass ${max_usd} (or no usage measured yet)")
             cost += rate * len(group) if max_usd else 0
             ids = json.loads(state.read_text()) if state.exists() else []
             state.write_text(json.dumps(ids + [submit(client, editor, group)]))
-        jobs = [job for batch_id in json.loads(state.read_text())
-                for job in collect(client, editor, by_id, batch_id, out_path, e["max_attempts"])]
+            sent.update(cid for cid, _ in group)
+        jobs = [job for job in jobs if custom_id(*job) not in sent] + [
+            job for batch_id in json.loads(state.read_text())
+            for job in collect(client, editor, by_id, batch_id, out_path, e["max_attempts"])]
         state.unlink()
 
 
