@@ -1,4 +1,4 @@
-"""Generate AI edits of sentences through OpenAI-compatible chat endpoints.
+"""Generate AI edits of sentences through OpenAI-compatible chat endpoints, or Anthropic's Messages API (api: anthropic).
 
 The prompt asks for an edit without a requested size (no "change k of n words"), so each editor edits at its own
 strength, measured afterwards (actual_r in --consolidate); target_r is empty for these edits. A config may still set
@@ -7,10 +7,12 @@ target_strengths (the masked-LM control in edit_mlm.py uses them).
 Each request shows the sentence inside its whole (original, human) document, with the document first so that every
 request for one document shares a cacheable prefix; jobs are sent in document order for the same reason.
 
-Default mode sends concurrent requests; --batch uses the Batch API instead (half price at OpenAI, results within
-24 h), resubmitting rejected outputs in further batches. Both append outputs to edits/<editor>.jsonl and skip finished
-(sentence_id, target_r, rep) keys, so they can be rerun after an interruption; --batch also records submitted batch
-ids in edits/<editor>.jsonl.batches and collects them on the next run. Run editors in parallel via --editors.
+Default mode sends concurrent requests; --batch uses the Batch API instead (half price at OpenAI and Anthropic, results
+within 24 h), resubmitting rejected outputs in further batches; Anthropic editors run only with --batch. Both append
+outputs to edits/<editor>.jsonl and skip finished (sentence_id, target_r, rep) keys, so they can be rerun after an
+interruption; --batch also records each batch id in edits/<editor>.jsonl.batches as it is submitted and collects
+those batches on the next run, so no request is submitted twice, and logs each response's token usage (cache reads
+and writes included) to edits/<editor>.jsonl.usage. Run editors in parallel via --editors.
 --consolidate measures the actual word changes and writes edits.parquet (every output, with rejection
 reason and diff mask) and versions.parquet (human sentences + accepted edits), the input to all detectors.
 """
@@ -21,6 +23,7 @@ import re
 import time
 from pathlib import Path
 
+import anthropic
 import openai
 import pandas as pd
 from tqdm import tqdm
@@ -45,8 +48,9 @@ ASK = {   # the instruction per editor `prompt` (default "edit"); wording under 
     "light": 'Lightly edit the sentence "{sentence}", please in the text above, to improve the writing, changing only '
              "what needs it. Keep the meaning and about the same length, and keep it one sentence.",
 }
-# The document comes first, so every request for one document shares a cacheable prefix.
-PROMPT = "Text: {document}\n\n{ask} Reply with only the edited sentence, followed by a line break."
+# The user message, as (document part, instruction part): the document comes first, so every request for one document
+# shares a cacheable prefix (marked for caching in Anthropic requests).
+PROMPT = "Text: {document}", "\n\n{ask} Reply with only the edited sentence, followed by a line break."
 PLACEHOLDER = re.compile(r"\bGeneric_\w+|\b[A-Z]+(?:_[A-Z]+)+\b")   # anonymized names etc. in the essay datasets
 PLACEHOLDER_SOURCES = {"persuade", "ellipse"}
 VERSION_COLS = ["sentence_id", "source", "doc_id", "split", "sent_idx", "editor", "target_r", "rep",
@@ -99,13 +103,21 @@ def client_args(editor):
 
 
 def request(editor, row, document):
-    """Chat-completions body asking the editor to edit row.text, shown inside its whole document; essay placeholders
-    get an instruction to keep them."""
-    prompt = PROMPT.format(document=document, ask=ASK[editor.get("prompt", "edit")].format(sentence=row.text))
+    """Request body asking the editor to edit row.text, shown inside its whole document; essay placeholders get an
+    instruction to keep them. Chat completions by default; for Anthropic, the same text with the document part
+    (after the system prompt) cached. cache_key: true sends a per-document prompt_cache_key (OpenAI)."""
+    head = PROMPT[0].format(document=document)
+    ask = PROMPT[1].format(ask=ASK[editor.get("prompt", "edit")].format(sentence=row.text))
     if keep := placeholders(row):
-        prompt += f" Keep the placeholder{'s' * (len(keep) > 1)} {', '.join(keep)} exactly as written."
-    return dict(model=editor["model"], messages=[{"role": "system", "content": SYSTEM.format(product=editor["product"])},
-                                                 {"role": "user", "content": prompt}], **editor.get("params", {}))
+        ask += f" Keep the placeholder{'s' * (len(keep) > 1)} {', '.join(keep)} exactly as written."
+    system = SYSTEM.format(product=editor["product"])
+    if editor.get("api") == "anthropic":
+        user = [{"type": "text", "text": head, "cache_control": {"type": "ephemeral"}}, {"type": "text", "text": ask}]
+        return dict(model=editor["model"], system=system, messages=[{"role": "user", "content": user}],
+                    **editor.get("params", {}))
+    body = dict(model=editor["model"], messages=[{"role": "system", "content": system},
+                                                 {"role": "user", "content": head + ask}], **editor.get("params", {}))
+    return body | ({"prompt_cache_key": f"doc-{row.doc_id}"} if editor.get("cache_key") else {})
 
 
 def record(editor, row, r, rep, out, attempt, reason):
@@ -175,32 +187,78 @@ async def run_editor(cfg, editor, docs, todo, out_path):
     print(f"{editor['name']}: {failed} requests failed after retries; rerun to retry them")
 
 
-def submit(client, editor, by_id, docs, jobs):
-    """Upload jobs (sentence_id, target_r, rep, attempt) as one batch; returns the batch id."""
-    lines = [json.dumps({"custom_id": f"{sid}:{r}:{rep}:{attempt}", "method": "POST", "url": "/v1/chat/completions",
-                         "body": request(editor, by_id.loc[sid], docs[by_id.at[sid, "doc_id"]])})
-             for sid, r, rep, attempt in jobs]
-    file = client.files.create(file=("requests.jsonl", "\n".join(lines).encode()), purpose="batch")
-    batch = client.batches.create(input_file_id=file.id, endpoint="/v1/chat/completions", completion_window="24h")
-    print(f"{editor['name']}: submitted {batch.id} with {len(jobs)} requests")
-    return batch.id
+def custom_id(sid, r, rep, attempt):
+    """Batch request id; Anthropic allows only letters, digits, _ and -."""
+    return f"{sid}_{r}_{rep}_{attempt}".replace(".", "p")
 
 
-def collect(client, editor, by_id, batch_id, out_path, max_attempts):
-    """Wait for a batch, append accepted and out-of-attempts outputs to out_path, return the jobs to resample.
-    Failed requests are not written, so the next run retries them."""
+def parse_id(cid):
+    sid, r, rep, attempt = cid.replace("p", ".").split("_")
+    return int(sid), None if r == "None" else float(r), int(rep), int(attempt)
+
+
+def groups(editor, by_id, docs, jobs, size, max_bytes):
+    """(custom_id, body) pairs for jobs (sentence_id, target_r, rep, attempt), in groups under a batch's request count
+    and size limits (each request carries its whole document)."""
+    group, n = [], 0
+    for job in jobs:
+        body = request(editor, by_id.loc[job[0]], docs[by_id.at[job[0], "doc_id"]])
+        b = len(json.dumps(body)) + 200
+        if group and (len(group) == size or n + b > max_bytes):
+            yield group
+            group, n = [], 0
+        group.append((custom_id(*job), body))
+        n += b
+    if group:
+        yield group
+
+
+def submit(client, editor, group):
+    """Submit one batch; returns its id."""
+    if editor.get("api") == "anthropic":
+        batch_id = client.messages.batches.create(requests=[{"custom_id": c, "params": b} for c, b in group]).id
+    else:
+        lines = [json.dumps({"custom_id": c, "method": "POST", "url": "/v1/chat/completions", "body": b})
+                 for c, b in group]
+        file = client.files.create(file=("requests.jsonl", "\n".join(lines).encode()), purpose="batch")
+        batch_id = client.batches.create(input_file_id=file.id, endpoint="/v1/chat/completions",
+                                         completion_window="24h").id
+    print(f"{editor['name']}: submitted {batch_id} with {len(group)} requests")
+    return batch_id
+
+
+def results(client, editor, batch_id):
+    """Wait for a batch; yield (custom_id, reply text, token usage) per succeeded request."""
+    if editor.get("api") == "anthropic":
+        while (batch := client.messages.batches.retrieve(batch_id)).processing_status != "ended":
+            time.sleep(60)
+        print(f"{editor['name']}: {batch_id} ended, {batch.request_counts}")
+        for res in client.messages.batches.results(batch_id):
+            if res.result.type == "succeeded":
+                m = res.result.message
+                yield res.custom_id, "".join(b.text for b in m.content if b.type == "text"), m.usage.model_dump()
+        return
     while (batch := client.batches.retrieve(batch_id)).status not in ("completed", "failed", "expired", "cancelled"):
         time.sleep(60)
     print(f"{editor['name']}: {batch_id} {batch.status}, {batch.request_counts}")
-    retry, lines = [], client.files.content(batch.output_file_id).text.splitlines() if batch.output_file_id else []
+    for res in map(json.loads, client.files.content(batch.output_file_id).text.splitlines() if batch.output_file_id
+                   else []):
+        if (res["response"] or {}).get("status_code") == 200:
+            body = res["response"]["body"]
+            yield res["custom_id"], body["choices"][0]["message"]["content"], body["usage"]
+
+
+def collect(client, editor, by_id, batch_id, out_path, max_attempts):
+    """Wait for a batch, append accepted and out-of-attempts outputs to out_path and each response's usage to
+    out_path.usage, return the jobs to resample. Failed requests are not written, so the next run retries them."""
+    retry = []
     terminate_last_line(out_path)
-    with open(out_path, "a") as f:
-        for res in map(json.loads, lines):
-            if (res["response"] or {}).get("status_code") != 200:
-                continue
-            sid, r, rep, attempt = (t(v) for t, v in zip((int, strength, int, int), res["custom_id"].split(":")))
+    with open(out_path, "a", buffering=1) as f, open(f"{out_path}.usage", "a") as u:
+        for cid, text, usage in results(client, editor, batch_id):
+            u.write(json.dumps(dict(custom_id=cid, batch_id=batch_id, usage=usage)) + "\n")
+            sid, r, rep, attempt = parse_id(cid)
             row = by_id.loc[sid]
-            out = clean(res["response"]["body"]["choices"][0]["message"]["content"], row.text)
+            out = clean(text, row.text)
             if (reason := rejection(row.text, out, placeholders(row))) and attempt < max_attempts:
                 retry.append((sid, r, rep, attempt + 1))
             else:
@@ -208,20 +266,42 @@ def collect(client, editor, by_id, batch_id, out_path, max_attempts):
     return retry
 
 
-def strength(v):
-    return None if v == "None" else float(v)
+def spent(editor, out_path):
+    """(dollars, responses) so far, from out_path.usage and the editor's batch prices per million tokens
+    (price: input, cache_read, cache_write, output)."""
+    p, cost, n = editor["price"], 0.0, 0
+    for line in read_jsonl(Path(f"{out_path}.usage")):
+        u, n = line["usage"], n + 1
+        if editor.get("api") == "anthropic":
+            tokens = dict(input=u["input_tokens"], cache_read=u["cache_read_input_tokens"] or 0,
+                          cache_write=u["cache_creation_input_tokens"] or 0, output=u["output_tokens"])
+        else:
+            cached = (u.get("prompt_tokens_details") or {}).get("cached_tokens") or 0
+            tokens = dict(input=u["prompt_tokens"] - cached, cache_read=cached, output=u["completion_tokens"])
+        cost += sum(p.get(k, 0) * v for k, v in tokens.items()) / 1e6
+    return cost, n
 
 
-def run_batches(cfg, editor, by_id, docs, jobs, out_path):
-    """Submit jobs in batches of edit.batch_size, collect them, and repeat with the jobs to resample. Batches already
-    recorded in the state file are collected first."""
-    client, state, size = openai.OpenAI(**client_args(editor)), Path(f"{out_path}.batches"), cfg["edit"]["batch_size"]
+def run_batches(cfg, editor, by_id, docs, jobs, out_path, max_usd=None):
+    """Submit jobs in batches under edit.batch_size requests and edit.batch_mb MB, recording each batch id in the state
+    file as soon as it is submitted; collect them and repeat with the jobs to resample. Batches already in the state
+    file are collected first. With max_usd, a batch is submitted only if the spend so far plus the batch at the cost
+    per request measured so far (the pilot's, at first) stays under it."""
+    e, state = cfg["edit"], Path(f"{out_path}.batches")
+    client = (anthropic.Anthropic(api_key=os.environ[editor["api_key_env"]], max_retries=8)
+              if editor.get("api") == "anthropic" else openai.OpenAI(**client_args(editor)))
     while jobs or state.exists():
-        if not state.exists():
-            state.write_text(json.dumps([submit(client, editor, by_id, docs, jobs[i:i + size])
-                                         for i in range(0, len(jobs), size)]))
+        cost, n = spent(editor, out_path) if max_usd else (0.0, 0)
+        rate = cost / n if n else None   # dollars per request so far, fixed for this round
+        for group in groups(editor, by_id, docs, jobs, e["batch_size"], e["batch_mb"] * 2**20):
+            if max_usd and (rate is None or cost + rate * len(group) > max_usd):
+                raise SystemExit(f"{editor['name']}: ${cost:.2f} spent or committed; the next {len(group)} requests "
+                                 f"would pass ${max_usd} (or no usage measured yet)")
+            cost += rate * len(group) if max_usd else 0
+            ids = json.loads(state.read_text()) if state.exists() else []
+            state.write_text(json.dumps(ids + [submit(client, editor, group)]))
         jobs = [job for batch_id in json.loads(state.read_text())
-                for job in collect(client, editor, by_id, batch_id, out_path, cfg["edit"]["max_attempts"])]
+                for job in collect(client, editor, by_id, batch_id, out_path, e["max_attempts"])]
         state.unlink()
 
 
@@ -271,6 +351,7 @@ def main():
         p.add_argument("--editors", nargs="*", help="editor names to run (default: all in config)")
         p.add_argument("--dry-run", action="store_true", help="print request counts and exit")
         p.add_argument("--batch", action="store_true", help="use the Batch API instead of concurrent requests")
+        p.add_argument("--max-usd", type=float, help="--batch: submit no batch that would take this editor past it")
         p.add_argument("--limit", type=int, help="send at most this many requests, whole documents in seeded random order")
         p.add_argument("--consolidate", action="store_true")
         p.add_argument("--status", action="store_true", help="print passes per editor, source and split")
@@ -292,9 +373,11 @@ def main():
                 continue
             if args.batch:
                 raise SystemExit("--batch is for API editors; the masked-LM editor runs locally")
+        if editor.get("api") == "anthropic" and not args.batch and not args.dry_run:
+            raise SystemExit(f"{editor['name']}: Anthropic editors run only with --batch")
         out_path = path(cfg, "edits", f"{editor['name']}.jsonl")
         if args.batch and not args.dry_run:
-            run_batches(cfg, editor, by_id, docs, [], out_path)  # pending batches
+            run_batches(cfg, editor, by_id, docs, [], out_path, args.max_usd)  # pending batches, then their retries
         todo = todo_for(cfg, sents, editor, out_path)   # in document order, so a document's requests share its cache
         if args.limit is not None:   # whole documents in a seeded random order, so a budget cap does not cut sources
             order = sents.doc_id.drop_duplicates().sample(frac=1, random_state=cfg["seed"])
@@ -308,7 +391,8 @@ def main():
             with open(out_path, "a") as f:
                 run(Infiller(editor["model"], editor.get("batch_size", 64)), todo, sents, editor, cfg["seed"], f)
         elif args.batch:
-            run_batches(cfg, editor, by_id, docs, [(row.sentence_id, r, rep, 1) for row, r, rep in todo], out_path)
+            run_batches(cfg, editor, by_id, docs, [(row.sentence_id, r, rep, 1) for row, r, rep in todo], out_path,
+                        args.max_usd)
         else:
             asyncio.run(run_editor(cfg, editor, docs, todo, out_path))
 
