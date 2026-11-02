@@ -74,15 +74,17 @@ edit:
       heldout: false
       params: {temperature: 1.0, top_p: 0.95, reasoning_effort: low, max_tokens: 4096,   # its benchmark settings;
                extra_body: {chat_template_kwargs: {clear_thinking: true}}}   # thinking cannot be turned off
-    - name: gpt-6-luna             # OpenAI Batch API; sampling parameters are not accepted, so defaults
+    - name: gpt-6-luna             # sampling parameters are not accepted, so defaults
       model: gpt-6-luna
       product: ChatGPT
       api_key_env: OPENAI_API_KEY
       cache_key: true
       heldout: false
-      params: {reasoning_effort: none, max_completion_tokens: 1024}   # reasoning off
+      # reasoning off; flex as for gpt-6-luna-light below (the first 25,035 records came from the Batch API)
+      params: {reasoning_effort: none, max_completion_tokens: 1024, service_tier: flex}
       price: {input: 0.05, cache_read: 0.005, output: 0.25}   # $/M tokens at batch rates (OpenRouter listing, 2026-11-01)
-      batch_limits: {batch_mb: 60, max_queued: 1}   # OpenAI queues at most 20M prompt tokens for this model (~100 MB)
+      batch_limits: {batch_mb: 25, max_queued: 3}   # OpenAI queues at most 20M prompt tokens for this model (~100 MB)
+      concurrency: 64
     - name: claude-haiku-5.5       # Anthropic Message Batches; sampling parameters are not accepted, so defaults
       model: claude-haiku-5-5
       product: Claude
@@ -107,9 +109,13 @@ edit:
        base_url: "http://localhost:8000/v1", heldout: false,
        params: {temperature: 1.0, top_p: 0.95, reasoning_effort: low, max_tokens: 4096,
                 extra_body: {chat_template_kwargs: {clear_thinking: true}}}}
+    # service_tier flex: Batch API prices, but answered per request (run without --batch); the first 1,000 records
+    # (the pilot) came from the Batch API, each later response's tier is in the .usage log. The org's limit for luna
+    # is 2M tokens/min (~2,550 per request, so ~780 requests/min), shared by both passes; concurrency keeps under it.
     - {name: gpt-6-luna-light, prompt: light, model: gpt-6-luna, product: ChatGPT, api_key_env: OPENAI_API_KEY,
-       cache_key: true, heldout: false, params: {reasoning_effort: none, max_completion_tokens: 1024},
-       price: {input: 0.05, cache_read: 0.005, output: 0.25}, batch_limits: {batch_mb: 60, max_queued: 1}}
+       cache_key: true, heldout: false, params: {reasoning_effort: none, max_completion_tokens: 1024, service_tier: flex},
+       concurrency: 64,
+       price: {input: 0.05, cache_read: 0.005, output: 0.25}, batch_limits: {batch_mb: 25, max_queued: 3}}
     - {name: claude-haiku-5.5-light, prompt: light, model: claude-haiku-5-5, product: Claude, api: anthropic,
        api_key_env: ANTHROPIC_API_KEY, heldout: false, params: {max_tokens: 1024, thinking: {type: disabled}},
        price: {input: 0.05, cache_read: 0.005, cache_write: 0.0625, output: 0.25}}
