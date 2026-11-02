@@ -332,14 +332,37 @@ preliminary choice, where it lives, and what to check.
         the same recipe with a fixed seed, saved with their edit positions and reused by every run.
       - Every sentence of every version is a labelled example (edited 1, human 0), class-weighted.
       - One pass per version: encoders pool each sentence's tokens and label all sentences at once. Llama reads the
-        document followed by each sentence repeated as its probe; an attention mask lets a probe see the document
-        but not the other probes, so a sentence's score depends only on the document; the probe's tokens are pooled.
+        chunk twice under its usual causal attention and each sentence is scored from its last token in the second
+        copy, which has seen the whole chunk (echo; decided 2026-11-01 by Ege, replacing per-sentence probes behind a
+        custom attention mask: same token cost, standard attention, a published method, Springer et al. 2024), so a
+        sentence's score depends only on the document.
       - Long documents are cut at the end and the remainder becomes the next chunk, at sentence boundaries, so every
-        sentence is labelled. Chunk length: proposed 2,048 tokens, not confirmed.
+        sentence is labelled. Chunk length: 2,048 tokens (decided 2026-11-01 by Ege).
       - Caveats: each swapped-in edit was generated against the all-human document, so multi-edit versions are
         stitched from independent single-sentence edits (test documents are built the same way); a human sentence's
         score depends on its neighbors (item 27), so per-sentence p-values for recovery are not exactly uniform in
         edited documents, while the all-human calib documents still give a valid null for the global test.
+    - Decided 2026-11-01 by Ege: Llama-3.1-8B is the base model (meta-llama/Llama-3.1-8B); the embedder is
+      EmbeddingGemma 2 (google/embeddinggemma-2), not embeddinggemma-300m. Hyperparameters from a literature and
+      model-card search (2026-11-01), all in `detector` in the config:
+      - Embedders: each card's classification input (Qwen3 and Nemotron: "Instruct: Classify the given sentence as
+        either human-written or edited by an AI model\nQuery:", our wording, as the cards ask for a task
+        instruction; EmbeddingGemma 2: its "Classification" prompt), the model's own pooling, L2-normalized, 512
+        tokens; standardized on train, then L2 logistic regression with balanced class weights, C in
+        10^{-6,-4,...,6} chosen on val (CLIP linear-probe protocol; the interval refinement is not done).
+      - Encoders: 2 epochs, effective batch 32, linear decay after 6% warmup, weight decay 0.01, gradient clipping
+        1.0, 256 tokens, bf16 autocast with fp32 weights; DeBERTa-v3-large LRs 5e-6, 1e-5, 2e-5 (paper grid, card
+        6e-6; 2e-5 is above the authors' grid), CLS pooling, AdamW eps 1e-6; ModernBERT-large 1e-5, 3e-5, 5e-5 (its
+        GLUE picks), mean pooling, betas (0.9, 0.98), eps 1e-6; Ettin-encoder-1B 1e-5, 2e-5, 4e-5 (thin evidence:
+        the paper reports only its sweep range), as ModernBERT.
+      - Decoders: LoRA r 16, alpha 32, dropout 0.05 on all linear layers, head trained in full, last-token pooling,
+        right padding; LRs 5e-5 and 2e-4 (QLoRA's 2e-4, LS-LLaMA's 8e-5; LoRA's best LR is about 10x full
+        fine-tuning); otherwise as the encoders. OLMo-3-7B is the base model (allenai/Olmo-3-1025-7B), as for Llama.
+      - Document detectors, one setting each (thin evidence: carried over from the sentence grid): 3 epochs,
+        8 chunks per step, 10% warmup; ModernBERT-large 3e-5, Ettin-encoder-1B 2e-5, Llama-3.1-8B LoRA 1e-4 with
+        gradient checkpointing, pooling each sentence's last token in the echo copy.
+      - Checkpoint selection: 10 val evaluations per epoch (document detectors: 1), keeping the best TPR at 1% FPR;
+        the same val then picks the search winner. Selection is on the training editors' val only.
 34. Embedding baseline. TBD.
     - Preliminary: `sentence-transformers/all-mpnet-base-v2`, normalized embeddings, `LogisticRegressionCV(Cs=10, cv=5)`.
     - Review: semantic embedders are trained to ignore paraphrase, so they may be a poor fit for edit detection; a
