@@ -160,6 +160,10 @@ preliminary choice, where it lives, and what to check.
       OpenAI requests carry a per-document prompt_cache_key. Neither model accepts sampling parameters, so both
       sample at their defaults. A 1,000-request pilot per editor and wording (seeded whole documents) measures
       tokens, cache hits and rejections; its records are part of the dataset, so the full run skips them.
+    - 2026-11-01 (Ege): luna requests after the first 1,000 light / 25,035 edit records go through flex processing
+      (`service_tier: flex`, billed at Batch rates, answered per request), which is faster than the Batch API,
+      whose rounds waited on stalled last requests. Same model, prompt and settings; only the serving tier differs,
+      and each response's tier is in the `.usage` log.
     - Review: whether to hold out Qwen 3.5 (an unseen lab) and also hold out other versions of training editors (an
       idea from Ege) to test version generalization. Open-weight models through OpenRouter can be served by
       different providers, some with quantized weights: pin a provider and record it. Turn reasoning off where the

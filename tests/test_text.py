@@ -1,7 +1,10 @@
+import asyncio
 import re
 import json
 from types import SimpleNamespace
 
+import httpx
+import openai
 import pandas as pd
 import pytest
 
@@ -97,6 +100,33 @@ def test_run_batches_queues_at_most_max_queued_batches_and_carries_the_rest(monk
                      tmp_path / "e.jsonl")
     # one batch per round; the unsent jobs go first, then the resample of job 1
     assert rounds == [custom_id(*j) for j in jobs + [(1, None, 0, 2)]]
+
+
+def test_run_editor_logs_usage_and_stops_before_a_chunk_that_would_pass_the_cap(monkeypatch, tmp_path):
+    from sparse_edits import edit
+    usage, calls = {"prompt_tokens": 1000, "completion_tokens": 0}, []   # $0.001 at $1/M input
+    monkeypatch.setattr(edit.random, "uniform", lambda a, b: 0)
+
+    async def create(**body):
+        calls.append(body)
+        if len(calls) == 1:   # no flex capacity: waited out and resent, not counted as an attempt
+            raise openai.RateLimitError("busy", body={"code": "flex_unavailable"},
+                                        response=httpx.Response(429, request=httpx.Request("POST", "http://x")))
+        return SimpleNamespace(service_tier="flex", usage=SimpleNamespace(model_dump=lambda: usage),
+                               choices=[SimpleNamespace(message=SimpleNamespace(content="Edited text here."))])
+    monkeypatch.setattr(edit.openai, "AsyncOpenAI",
+                        lambda **a: SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create))))
+    sents = pd.DataFrame(dict(sentence_id=range(3), doc_id=0, para_idx=0, source="xsum", n_words=2,
+                              text=[f"Sentence {i}." for i in range(3)]))
+    out = tmp_path / "e.jsonl"
+    (tmp_path / "e.jsonl.usage").write_text(json.dumps({"usage": usage}) + "\n")   # the pilot's response
+    cfg = {"edit": {"concurrency": 2, "chunk_size": 1, "max_attempts": 3}}
+    with pytest.raises(SystemExit):   # $0.001 spent + $0.001 fits under $0.0025; the next chunk would not
+        asyncio.run(edit.run_editor(cfg, {"name": "e", "model": "m", "product": "P", "price": {"input": 1}},
+                                    documents(sents), [(row, None, 0) for row in sents.itertuples()], out, 0.0025))
+    logged = [json.loads(line) for line in (tmp_path / "e.jsonl.usage").read_text().splitlines()]
+    assert len(out.read_text().splitlines()) == 1
+    assert logged[1] == dict(custom_id=custom_id(0, None, 0, 1), service_tier="flex", usage=usage)
 
 
 def test_batch_ids_round_trip_and_groups_stay_under_limits():

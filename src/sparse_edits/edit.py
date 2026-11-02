@@ -11,14 +11,16 @@ Default mode sends concurrent requests; --batch uses the Batch API instead (half
 within 24 h), resubmitting rejected outputs in further batches; Anthropic editors run only with --batch. Both append
 outputs to edits/<editor>.jsonl and skip finished (sentence_id, target_r, rep) keys, so they can be rerun after an
 interruption; --batch also records each batch id in edits/<editor>.jsonl.batches as it is submitted and collects
-those batches on the next run, so no request is submitted twice, and logs each response's token usage (cache reads
-and writes included) to edits/<editor>.jsonl.usage. Run editors in parallel via --editors.
+those batches on the next run, so no request is submitted twice. Both log each response's token usage (cache reads
+and writes included; concurrent requests also the service tier that served them) to edits/<editor>.jsonl.usage, which
+--max-usd caps. Run editors in parallel via --editors.
 --consolidate measures the actual word changes and writes edits.parquet (every output, with rejection
 reason and diff mask) and versions.parquet (human sentences + accepted edits), the input to all detectors.
 """
 import asyncio
 import json
 import os
+import random
 import re
 import time
 from itertools import islice
@@ -126,18 +128,28 @@ def record(editor, row, r, rep, out, attempt, reason):
                 attempts=attempt, rejected=reason)
 
 
-async def edit_one(client, editor, docs, row, r, rep, max_attempts, sem):
-    """One edit; resamples up to max_attempts on rejection. Returns None on API failure (retried next run)."""
+async def edit_one(client, editor, docs, row, r, rep, max_attempts, sem, usage):
+    """One edit; resamples up to max_attempts on rejection, logging each response's usage and service tier to the
+    usage file. A request still rate-limited (or without flex capacity) after the client's retries waits and is resent,
+    not counted as an attempt; returns None on other API failures (retried next run)."""
     async with sem:
         for attempt in range(1, max_attempts + 1):
-            try:
-                resp = await client.chat.completions.create(**request(editor, row, docs[row.doc_id]))
-            except openai.APIError as e:
-                print(f"{editor['name']} sentence {row.sentence_id}: {e!r}")
-                return None
+            while True:
+                try:
+                    resp = await client.chat.completions.create(**request(editor, row, docs[row.doc_id]))
+                    break
+                except openai.APIError as e:
+                    if e.code in ("rate_limit_exceeded", "flex_unavailable"):
+                        await asyncio.sleep(random.uniform(10, 30))
+                        continue
+                    print(f"{editor['name']} sentence {row.sentence_id}: {e!r}")
+                    return None
             if isinstance(resp, str):   # the HUIT gateway occasionally returns a non-JSON body with status 200
                 print(f"{editor['name']} sentence {row.sentence_id}: non-JSON response {resp[:300]!r}")
                 return None
+            if resp.usage:
+                usage.write(json.dumps(dict(custom_id=custom_id(row.sentence_id, r, rep, attempt),
+                                            service_tier=resp.service_tier, usage=resp.usage.model_dump())) + "\n")
             out = clean(resp.choices[0].message.content, row.text)
             if (reason := rejection(row.text, out, placeholders(row))) is None:
                 break
@@ -170,14 +182,22 @@ def terminate_last_line(out_path):
         out_path.write_text(out_path.read_text() + "\n")  # a line truncated by an interrupted run
 
 
-async def run_editor(cfg, editor, docs, todo, out_path):
+async def run_editor(cfg, editor, docs, todo, out_path, max_usd=None):
+    """Send todo concurrently in chunks of edit.chunk_size; with max_usd, a chunk is sent only if the spend so far plus
+    the chunk at the cost per response measured so far stays under it."""
     e = cfg["edit"]
     client = openai.AsyncOpenAI(**client_args(editor))
-    sem, failed = asyncio.Semaphore(e["concurrency"]), 0
+    sem, failed = asyncio.Semaphore(editor.get("concurrency", e["concurrency"])), 0   # per editor, for rate limits
     terminate_last_line(out_path)
-    with open(out_path, "a", buffering=1) as f, tqdm(total=len(todo), desc=editor["name"]) as bar:   # a line per record
+    with open(out_path, "a", buffering=1) as f, open(f"{out_path}.usage", "a", buffering=1) as u, \
+            tqdm(total=len(todo), desc=editor["name"]) as bar:   # a line per record
         for i in range(0, len(todo), e["chunk_size"]):
-            jobs = [edit_one(client, editor, docs, *job, e["max_attempts"], sem) for job in todo[i:i + e["chunk_size"]]]
+            chunk = todo[i:i + e["chunk_size"]]
+            cost, n = spent(editor, out_path) if max_usd else (0.0, 0)
+            if max_usd and (not n or cost + cost / n * len(chunk) > max_usd):
+                raise SystemExit(f"{editor['name']}: ${cost:.2f} spent; the next {len(chunk)} requests would pass "
+                                 f"${max_usd} (or no usage measured yet)")
+            jobs = [edit_one(client, editor, docs, *job, e["max_attempts"], sem, u) for job in chunk]
             for fut in asyncio.as_completed(jobs):
                 res = await fut
                 failed += res is None
@@ -239,7 +259,14 @@ def results(client, editor, batch_id):
                 m = res.result.message
                 yield res.custom_id, "".join(b.text for b in m.content if b.type == "text"), m.usage.model_dump()
         return
+    done, since = None, time.time()
     while (batch := client.batches.retrieve(batch_id)).status not in ("completed", "failed", "expired", "cancelled"):
+        c = batch.request_counts
+        if c and c.completed != done:
+            done, since = c.completed, time.time()
+        if batch.status == "in_progress" and done and time.time() - since > 600:   # started, then no progress in 10 min
+            print(f"{editor['name']}: cancelling {batch_id}, stuck at {done}/{c.total}; the rest are resent next run")
+            client.batches.cancel(batch_id)   # its completed results still come back; cancelled ones are not billed
         time.sleep(60)
     print(f"{editor['name']}: {batch_id} {batch.status}, {batch.request_counts}")
     for res in map(json.loads, client.files.content(batch.output_file_id).text.splitlines() if batch.output_file_id
@@ -357,7 +384,7 @@ def main():
         p.add_argument("--editors", nargs="*", help="editor names to run (default: all in config)")
         p.add_argument("--dry-run", action="store_true", help="print request counts and exit")
         p.add_argument("--batch", action="store_true", help="use the Batch API instead of concurrent requests")
-        p.add_argument("--max-usd", type=float, help="--batch: submit no batch that would take this editor past it")
+        p.add_argument("--max-usd", type=float, help="send no batch or chunk that would take this editor past it")
         p.add_argument("--limit", type=int, help="send at most this many requests, whole documents in seeded random order")
         p.add_argument("--consolidate", action="store_true")
         p.add_argument("--status", action="store_true", help="print passes per editor, source and split")
@@ -400,7 +427,7 @@ def main():
             run_batches(cfg, editor, by_id, docs, [(row.sentence_id, r, rep, 1) for row, r, rep in todo], out_path,
                         args.max_usd)
         else:
-            asyncio.run(run_editor(cfg, editor, docs, todo, out_path))
+            asyncio.run(run_editor(cfg, editor, docs, todo, out_path, args.max_usd))
 
 
 if __name__ == "__main__":
