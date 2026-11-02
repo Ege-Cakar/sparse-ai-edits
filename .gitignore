@@ -9,3 +9,4 @@ data/*
 .env
 data/edits/*.batches
 data/edits/*.usage
+.hf_token
