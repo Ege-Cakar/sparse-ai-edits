@@ -9,17 +9,20 @@ Run kinds (detector.runs in the config; an entry expands over its lrs x weightin
   is the next chunk), one label per sentence, global class weights. Encoders pool each sentence's tokens; decoders
   (echo: true) read the chunk twice under their usual causal attention and pool each sentence's tokens in the second
   copy, which have seen the whole chunk (echo embeddings, Springer et al. 2024).
-Data: train documents (a seeded search_frac of them) and the training editors' accepted edits, both wordings;
-document versions are, per document, one all-human version and, per training editor-wording and theta, m =
-round(n^(1 - theta)) random positions given that editor's accepted edit (a position without one stays human). Val:
+Data: train documents (a seeded search_frac of them, or the run's train_frac) and the training editors' accepted
+edits, both wordings; document versions are, per document, one all-human version and, per training editor-wording and
+theta, m = round(n^(1 - theta)) random positions given that editor's accepted edit (a position without one stays
+human). Val:
 the val split (document runs: a seeded val_frac of its documents, versions saved once to detector/doc_val.parquet),
 training editors only; the held-out editor is never read. Writes detector/<run>/: metrics.json (val loss, AUROC,
 TPR at detector.fpr; pooled, per editor and per source, and the run's settings), val_scores.parquet and, for neural
-runs, model.pt (the trained weights); resumes from detector/<run>/ckpt.pt after a preemption. --score SPLIT ...
+runs, model.pt (the trained weights), plus model_epoch<E>.pt and val_scores_epoch<E>.parquet, the best of them by the
+end of each epoch E; resumes from detector/<run>/ckpt.pt after a preemption. --score SPLIT ...
 scores every version of those splits with a sentence run's model.pt into scores/<run>.parquet (version_id, score), the
-input of calibrate.py.
+input of calibrate.py; with --epoch E, with model_epoch<E>.pt into scores/<run>_epoch<E>.parquet.
 """
 import json
+import shutil
 import time
 from bisect import bisect_right
 
@@ -280,6 +283,11 @@ def fit(cfg, run, model, n, batch, evaluate, out, max_steps=None):
                 torch.save(weights(), out / "model.tmp")
                 scored.drop(columns=["text"], errors="ignore").to_parquet(out / "val_scores.tmp", index=False)
                 (out / "model.tmp").replace(out / "model.pt"), (out / "val_scores.tmp").replace(out / "val_scores.parquet")
+            if step % (total // run["epochs"]) == 0:   # the best weights by the end of this epoch, kept
+                e = step // (total // run["epochs"])
+                for a, b in [("model.pt", f"model_epoch{e}.pt"),
+                             ("val_scores.parquet", f"val_scores_epoch{e}.parquet")]:
+                    shutil.copyfile(out / a, out / f"{b}.tmp"), (out / f"{b}.tmp").replace(out / b)
             model.train()
         if step % run["ckpt_every"] == 0 or step in evals or step == max_steps:
             torch.save(dict(model=weights(), opt=opt.state_dict(), sched=sched.state_dict(), step=step,
@@ -360,23 +368,26 @@ def run_sentence(cfg, run, train, val, out, max_steps):
                lambda mdl: val.assign(score=scores_of(mdl, run, tok, vt, order)), out, max_steps)
 
 
-def score(cfg, run, versions, splits, out):
-    """scores/<run>.parquet (version_id, score) for every version in splits, from the trained out/model.pt."""
+def score(cfg, run, versions, splits, out, epoch=None):
+    """scores/<run>.parquet (version_id, score) for every version in splits, from the trained out/model.pt; with epoch
+    E, scores/<run>_epoch<E>.parquet from out/model_epoch<E>.pt (the best weights by the end of epoch E)."""
     assert run["kind"] == "sentence", f"{run['name']}: only sentence runs keep a model to score with"
     tok, model = tokenizer(run), Detector(run).cuda()
-    load_trainable(model, torch.load(out / "model.pt"))
+    sfx = f"_epoch{epoch}" if epoch else ""
+    load_trainable(model, torch.load(out / f"model{sfx}.pt"))
     v = versions[versions.split.isin(splits)].reset_index(drop=True)
     texts = v.text.to_numpy()
     s = scores_of(model, run, tok, texts, by_length(tok, run, texts))
-    pd.DataFrame({"version_id": v.version_id, "score": s}).to_parquet(path(cfg, "scores", f"{run['name']}.parquet"),
-                                                                      index=False)
+    pd.DataFrame({"version_id": v.version_id, "score": s}).to_parquet(
+        path(cfg, "scores", f"{run['name']}{sfx}.parquet"), index=False)
     print(f"{run['name']}: scored {len(v)} versions of {splits}")
 
 
 def run_document(cfg, run, sents, versions, out, max_steps, smoke):
     d, tok = cfg["detector"], tokenizer(run)
     budget = run["chunk_tokens"] - 8   # room for special tokens
-    train_docs, val_docs = (doc_sample(sents, sp, f, cfg["seed"]) for sp, f in [("train", d["search_frac"]),
+    train_frac = run.get("train_frac", d["search_frac"])
+    train_docs, val_docs = (doc_sample(sents, sp, f, cfg["seed"]) for sp, f in [("train", train_frac),
                                                                                    ("val", d["val_frac"])])
     if smoke:
         train_docs, val_docs = (set(sorted(x)[:smoke]) for x in (train_docs, val_docs))
@@ -414,6 +425,7 @@ def main():
                        "for document runs); outputs under detector/smoke/")
         p.add_argument("--max-steps", type=int, help="stop after this many optimizer steps, checkpointed")
         p.add_argument("--score", nargs="+", metavar="SPLIT", help="score these splits with the run's model.pt")
+        p.add_argument("--epoch", type=int, help="with --score: use model_epoch<E>.pt, the best weights by epoch E")
     cfg, args = cli(__doc__, args)
     runs = expand(cfg)
     if args.list:
@@ -422,12 +434,12 @@ def main():
     out = path(cfg, "detector", *(["smoke"] if args.smoke else []), run["name"], "x").parent
     sents, versions = pd.read_parquet(path(cfg, "sentences.parquet")), pd.read_parquet(path(cfg, "versions.parquet"))
     if args.score:
-        return score(cfg, run, versions, args.score, out)
+        return score(cfg, run, versions, args.score, out, args.epoch)
     if run["kind"] == "document":
         history = run_document(cfg, run, sents, versions, out, args.max_steps, args.smoke)
     else:
         train, val = (sentence_examples(cfg, versions, sp, doc_sample(sents, sp, f, cfg["seed"]))
-                      for sp, f in [("train", d["search_frac"]), ("val", 1)])
+                      for sp, f in [("train", run.get("train_frac", d["search_frac"])), ("val", 1)])
         if args.smoke:
             train, val = (x.sample(args.smoke, random_state=cfg["seed"]).reset_index(drop=True) for x in (train, val))
         if run["kind"] == "embed":

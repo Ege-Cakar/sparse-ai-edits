@@ -207,7 +207,7 @@ detector:                      # the detector search (detect.py; docs/review.md 
     llama-embed-nemotron-8b: {<<: *qwen3, model: nvidia/llama-embed-nemotron-8b, st_kwargs: {trust_remote_code: true},
                               prompt: "Instruct: Classify the given sentence as either human-written or edited by an AI model\nQuery: "}
     # Encoders, full fine-tune x 3 learning rates x 2 weightings
-    deberta-v3-large: {kind: sentence, model: microsoft/deberta-v3-large, attn: eager, pooling: cls, eps: 1.0e-6,
+    deberta-v3-large: &deberta {kind: sentence, model: microsoft/deberta-v3-large, attn: eager, pooling: cls, eps: 1.0e-6,
                        lrs: [5.0e-6, 1.0e-5, 2.0e-5], weightings: [global, per_sentence]}
     modernbert-large: &modernbert {kind: sentence, model: answerdotai/ModernBERT-large, pooling: mean,
                                    betas: [0.9, 0.98], eps: 1.0e-6, lrs: [1.0e-5, 3.0e-5, 5.0e-5],
@@ -217,8 +217,18 @@ detector:                      # the detector search (detect.py; docs/review.md 
     llama-3.1-8b: &decoder {kind: sentence, model: meta-llama/Llama-3.1-8B, pooling: last, lrs: [5.0e-5, 2.0e-4],
                             pad_token: "<|finetune_right_pad_id|>",
                             lora: {r: 16, lora_alpha: 32, lora_dropout: 0.05, target_modules: all-linear}}
-    olmo-3-7b: {<<: *decoder, model: allenai/Olmo-3-1025-7B, pad_token: null}
+    olmo-3-7b: &olmo {<<: *decoder, model: allenai/Olmo-3-1025-7B, pad_token: null}
     ettin-decoder-1b: {<<: *decoder, model: jhu-clsp/ettin-decoder-1b, pad_token: null}
+    # Full training (decided 2026-11-03 by Ege): every train document, 3 epochs (the best weights by the end of each
+    # epoch are kept, so analysis can start from epoch 2), learning rates a factor of 2 around each family's search
+    # winner. Decoders on Kempner H200s, DeBERTa on RunPod.
+    full-llama-3.1-8b: {<<: *decoder, train_frac: 1.0, epochs: 3, lrs: [2.5e-5, 5.0e-5, 1.0e-4]}
+    full-olmo-3-7b: {<<: *olmo, train_frac: 1.0, epochs: 3, lrs: [2.5e-5, 5.0e-5, 1.0e-4]}
+    full-deberta-v3-large: {<<: *deberta, train_frac: 1.0, epochs: 3, lrs: [2.5e-6, 5.0e-6, 1.0e-5],
+                            weightings: [per_sentence]}
+    # OLMo-3-32B (same family as OLMo-3-7B; the research note's larger-decoder arm), 1 epoch: about 13 h on an H200
+    # (estimated from OLMo-3-7B's step time x 4.5), the time left before the 2026-11-05 deadline
+    full-olmo-3-32b: {<<: *olmo, model: allenai/Olmo-3-1125-32B, train_frac: 1.0, epochs: 1, lrs: [5.0e-5]}
     # Whole-document detectors, one setting each
     doc-modernbert-large: &doc {kind: document, model: answerdotai/ModernBERT-large, pooling: mean, betas: [0.9, 0.98],
                                 eps: 1.0e-6, lrs: [3.0e-5], epochs: 3, eval_per_epoch: 1, warmup: 0.1,
