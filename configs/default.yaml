@@ -93,6 +93,19 @@ edit:
       heldout: false
       params: {max_tokens: 1024, thinking: {type: disabled}}   # thinking off (allowed at the default effort, medium)
       price: {input: 0.05, cache_read: 0.005, cache_write: 0.0625, output: 0.25}   # batch rates, 5-min cache writes
+    # A sample, "edit" wording only, in the splits' shares: edit.py --limit 20000 (decided 2026-11-03 by Ege, $30.42);
+    # rerunning with a larger --limit, or with --splits test, continues it in the same document order.
+    - name: claude-sonnet-5.5      # Anthropic Message Batches; sampling parameters are not accepted, so defaults
+      model: claude-sonnet-5-5
+      product: Claude
+      api: anthropic
+      api_key_env: ANTHROPIC_API_KEY
+      heldout: false
+      # thinking off: "disabled" is a 400 on Sonnet 5.5; between_tools is its lowest setting (no extended thinking),
+      # allowed at the default effort, high
+      params: {max_tokens: 1024, thinking: {type: between_tools}}
+      price: {input: 1.0, cache_read: 0.05, cache_write: 1.25, output: 5.0}   # batch rates, 5-min cache writes
+                                                                             # (Anthropic pricing page, 2026-11-03)
     # Light pass (decided 2026-10-31 by Ege): the same models with the "light" wording (edit.ASK), every split.
     - {name: gpt-oss-120b-light, prompt: light, model: openai/gpt-oss-120b, product: ChatGPT,
        base_url: "http://localhost:8000/v1", heldout: false,
@@ -119,6 +132,10 @@ edit:
     - {name: claude-haiku-5.5-light, prompt: light, model: claude-haiku-5-5, product: Claude, api: anthropic,
        api_key_env: ANTHROPIC_API_KEY, heldout: false, params: {max_tokens: 1024, thinking: {type: disabled}},
        price: {input: 0.05, cache_read: 0.005, cache_write: 0.0625, output: 0.25}}
+    # The same 20,000-sentence sample as claude-sonnet-5.5 (--limit 20000; decided 2026-11-03 by Ege)
+    - {name: claude-sonnet-5.5-light, prompt: light, model: claude-sonnet-5-5, product: Claude, api: anthropic,
+       api_key_env: ANTHROPIC_API_KEY, heldout: false, params: {max_tokens: 1024, thinking: {type: between_tools}},
+       price: {input: 1.0, cache_read: 0.05, cache_write: 1.25, output: 5.0}}
 
 lm_scores:                     # one forward pass of both models gives all three zero-shot scores
   observer: tiiuae/falcon-7b
