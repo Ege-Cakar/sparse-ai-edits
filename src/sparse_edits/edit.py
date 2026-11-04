@@ -167,14 +167,26 @@ def read_jsonl(p):
     return rows
 
 
-def todo_for(cfg, sents, editor, out_path):
-    """(row, target_r, rep) jobs not yet in out_path; target_r is None unless target_strengths are configured.
-    Sentences with no words ("!", "***") are never sent; they stay human in every version."""
+def todo_for(cfg, sents, editor, out_path=None):
+    """(row, target_r, rep) jobs not yet in out_path (all jobs without it); target_r is None unless target_strengths
+    are configured. Sentences with no words ("!", "***") are never sent; they stay human in every version."""
     e = cfg["edit"]
-    done = {(d["sentence_id"], d["target_r"], d["rep"]) for d in read_jsonl(out_path)}
+    done = {(d["sentence_id"], d["target_r"], d["rep"]) for d in read_jsonl(out_path)} if out_path else set()
     return [(row, r, rep) for row in sents[sents.split.isin(e["splits"]) & (sents.n_words > 0)].itertuples()
             for r in editor.get("target_strengths", e.get("target_strengths", [None])) for rep in range(e["reps"])
             if (row.sentence_id, r, rep) not in done]
+
+
+def limited(cfg, sents, jobs, n):
+    """The first of an editor's jobs (done or not), about n, divided among edit.splits in proportion to their editable
+    sentences; within a split, document order, documents in one seeded random order (the same for every editor and
+    run), so a capped run covers sources evenly. n is a total: a rerun with the same n sends only what is unfinished,
+    one with a larger n continues the order. The cut may fall inside a document."""
+    order = sents.doc_id.drop_duplicates().sample(frac=1, random_state=cfg["seed"])
+    rank = dict(zip(order, range(len(order))))
+    jobs = sorted(jobs, key=lambda job: rank[job[0].doc_id])   # stable: keeps document order
+    share = sents[sents.split.isin(cfg["edit"]["splits"]) & (sents.n_words > 0)].split.value_counts(normalize=True)
+    return [job for s, f in share.items() for job in [j for j in jobs if j[0].split == s][:round(n * f)]]
 
 
 def terminate_last_line(out_path):
@@ -385,10 +397,13 @@ def main():
         p.add_argument("--dry-run", action="store_true", help="print request counts and exit")
         p.add_argument("--batch", action="store_true", help="use the Batch API instead of concurrent requests")
         p.add_argument("--max-usd", type=float, help="send no batch or chunk that would take this editor past it")
-        p.add_argument("--limit", type=int, help="send at most this many requests, whole documents in seeded random order")
+        p.add_argument("--limit", type=int, help="edit only the first this many jobs in total, in each split's share "
+                                                 "(see limited); those already done are not resent")
+        p.add_argument("--splits", nargs="*", help="edit only these splits this run (default: edit.splits)")
         p.add_argument("--consolidate", action="store_true")
         p.add_argument("--status", action="store_true", help="print passes per editor, source and split")
     cfg, args = cli(__doc__, add_args)
+    cfg["edit"]["splits"] = args.splits or cfg["edit"]["splits"]
     if args.consolidate:
         return consolidate(cfg)
     if args.status:
@@ -412,10 +427,10 @@ def main():
         if args.batch and not args.dry_run:
             run_batches(cfg, editor, by_id, docs, [], out_path, args.max_usd)  # pending batches, then their retries
         todo = todo_for(cfg, sents, editor, out_path)   # in document order, so a document's requests share its cache
-        if args.limit is not None:   # whole documents in a seeded random order, so a budget cap does not cut sources
-            order = sents.doc_id.drop_duplicates().sample(frac=1, random_state=cfg["seed"])
-            rank = dict(zip(order, range(len(order))))
-            todo = sorted(todo, key=lambda job: rank[job[0].doc_id])[:args.limit]   # stable: keeps document order
+        if args.limit is not None:   # a total: the unfinished jobs among the first --limit of the order
+            keep = {(row.sentence_id, r, rep) for row, r, rep in limited(cfg, sents, todo_for(cfg, sents, editor),
+                                                                        args.limit)}
+            todo = [job for job in todo if (job[0].sentence_id, job[1], job[2]) in keep]
         print(f"{editor['name']}: {len(todo)} requests to send")
         if args.dry_run:
             continue

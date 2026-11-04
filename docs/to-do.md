@@ -35,6 +35,11 @@ setting is final. Open decisions are in
       the org's 2M tokens/min for luna (requests over it, or without flex capacity, wait and are resent). ~2,100
       responses (~$0.20) were repeats of sentences whose run was interrupted. Progress stopped while the laptop
       slept 18:15-21:00.
+      Claude Sonnet 5.5 (2026-11-03, "edit" wording only; thinking between_tools, since disabled is a 400): a sample
+      of 20,000 sentences in the splits' shares (edit.py --limit 20000: 12,456 train, 1,279 val, 6,265 test; 970
+      documents), $30.42 with the 500-sentence pilot, 91.9% accepted (Haiku on the same sentences: 88.0%). For the
+      Sonnet-Haiku comparison and detector transfer; a larger --limit, or --splits test, continues it in the same order.
+      Full coverage would cost ~$290 per wording at the measured $0.0015 per sentence.
 - [x] Editing client for OpenAI-compatible endpoints, resumable, with rejection and resampling, as concurrent requests
       or through the Batch API (`edit.py --batch`; checked against the HUIT gateway).
 - [x] Diff labels: word-level edit count, measured strength, per-word AI mask, and `versions.parquet`
