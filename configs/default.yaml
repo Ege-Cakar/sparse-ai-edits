@@ -132,8 +132,8 @@ edit:
     - {name: claude-haiku-5.5-light, prompt: light, model: claude-haiku-5-5, product: Claude, api: anthropic,
        api_key_env: ANTHROPIC_API_KEY, heldout: false, params: {max_tokens: 1024, thinking: {type: disabled}},
        price: {input: 0.05, cache_read: 0.005, cache_write: 0.0625, output: 0.25}}
-    # The first 17,000 sentences of claude-sonnet-5.5's sample (--limit 17000, to fit the Anthropic balance; decided
-    # 2026-11-03 by Ege); --limit 20000 would complete the pairing
+    # The same 20,000-sentence sample as claude-sonnet-5.5 (--limit 17000 on 2026-11-03, extended to --limit 20000
+    # on 2026-11-04; decided by Ege)
     - {name: claude-sonnet-5.5-light, prompt: light, model: claude-sonnet-5-5, product: Claude, api: anthropic,
        api_key_env: ANTHROPIC_API_KEY, heldout: false, params: {max_tokens: 1024, thinking: {type: between_tools}},
        price: {input: 1.0, cache_read: 0.05, cache_write: 1.25, output: 5.0}}
@@ -228,8 +228,10 @@ detector:                      # the detector search (detect.py; docs/review.md 
     full-deberta-v3-large: {<<: *deberta, train_frac: 1.0, epochs: 3, lrs: [2.5e-6, 5.0e-6, 1.0e-5],
                             weightings: [per_sentence], ckpt_every: 4000}   # 5 GB checkpoints on a network volume
     # OLMo-3-32B (same family as OLMo-3-7B; the research note's larger-decoder arm), 1 epoch: about 13 h on an H200
-    # (estimated from OLMo-3-7B's step time x 4.5), the time left before the 2026-11-05 deadline
-    full-olmo-3-32b: {<<: *olmo, model: allenai/Olmo-3-1125-32B, train_frac: 1.0, epochs: 1, lrs: [5.0e-5]}
+    # (estimated from OLMo-3-7B's step time x 4.5), the time left before the 2026-11-05 deadline. Gradient
+    # checkpointing: without it the first training steps ran out of the H200's 140 GiB (2026-11-04).
+    full-olmo-3-32b: {<<: *olmo, model: allenai/Olmo-3-1125-32B, train_frac: 1.0, epochs: 1, lrs: [5.0e-5],
+                      grad_ckpt: true}
     # Whole-document detectors, one setting each
     doc-modernbert-large: &doc {kind: document, model: answerdotai/ModernBERT-large, pooling: mean, betas: [0.9, 0.98],
                                 eps: 1.0e-6, lrs: [3.0e-5], epochs: 3, eval_per_epoch: 1, warmup: 0.1,
