@@ -15,7 +15,9 @@ round(n^(1 - theta)) random positions given that editor's accepted edit (a posit
 the val split (document runs: a seeded val_frac of its documents, versions saved once to detector/doc_val.parquet),
 training editors only; the held-out editor is never read. Writes detector/<run>/: metrics.json (val loss, AUROC,
 TPR at detector.fpr; pooled, per editor and per source, and the run's settings), val_scores.parquet and, for neural
-runs, model.pt (the trained weights); resumes from detector/<run>/ckpt.pt after a preemption.
+runs, model.pt (the trained weights); resumes from detector/<run>/ckpt.pt after a preemption. --score SPLIT ...
+scores every version of those splits with a sentence run's model.pt into scores/<run>.parquet (version_id, score), the
+input of calibrate.py.
 """
 import json
 import time
@@ -213,6 +215,15 @@ def cuda(d):
     return {k: v.cuda() for k, v in d.items()}
 
 
+def load_trainable(model, state):
+    """Load saved trainable weights (fit's weights()); stops unless every saved key is the model's and every trainable
+    parameter was saved (base weights come from the backbone)."""
+    missing, unexpected = model.load_state_dict(state, strict=False)
+    lost = sorted({k for k, p in model.named_parameters() if p.requires_grad} & set(missing))
+    if unexpected or lost:
+        raise SystemExit(f"saved weights do not match the model: unexpected {unexpected[:5]}, missing {lost[:5]}")
+
+
 def fit(cfg, run, model, n, batch, evaluate, out, max_steps=None):
     """Weighted cross-entropy, AdamW, warmup then the schedule; batch(indices) -> (inputs, labels, weights). Evaluates
     eval_per_epoch times an epoch (evaluate(model) -> scored val rows) and keeps the weights (out/model.pt) and val
@@ -234,10 +245,13 @@ def fit(cfg, run, model, n, batch, evaluate, out, max_steps=None):
         st = torch.load(ckpt, weights_only=False)
         if st["run"] != run:
             raise SystemExit(f"{ckpt} was saved with other settings ({st['run']}); move it away to start over")
-        model.load_state_dict(st["model"], strict=False)
+        load_trainable(model, st["model"])
         opt.load_state_dict(st["opt"]), sched.load_state_dict(st["sched"])
         step, history = st["step"], st["history"]
         print(f"{run['name']}: resumed at step {step}/{total}")
+    best = max((h[key] for h in history), default=-np.inf)
+    if ckpt.exists() and (out / "val_scores.parquet").exists():   # from an eval the checkpoint may have missed
+        best = max(best, metrics(pd.read_parquet(out / "val_scores.parquet"), cfg["detector"]["fpr"])["pooled"][key])
     model.train()
     t0 = time.time()
     while step < total and step != max_steps:
@@ -261,9 +275,11 @@ def fit(cfg, run, model, n, batch, evaluate, out, max_steps=None):
             m = metrics(scored, cfg["detector"]["fpr"])
             history.append({"step": step, "val_loss": m["val_loss"]} | m["pooled"])
             print(f"{run['name']}: eval at step {step}: {json.dumps(history[-1])}", flush=True)
-            if m["pooled"][key] >= max(h[key] for h in history):
-                torch.save(weights(), out / "model.pt")
-                scored.drop(columns=["text"], errors="ignore").to_parquet(out / "val_scores.parquet", index=False)
+            if m["pooled"][key] >= best:   # temporary files first: a preemption never leaves half a file
+                best = m["pooled"][key]
+                torch.save(weights(), out / "model.tmp")
+                scored.drop(columns=["text"], errors="ignore").to_parquet(out / "val_scores.tmp", index=False)
+                (out / "model.tmp").replace(out / "model.pt"), (out / "val_scores.tmp").replace(out / "val_scores.parquet")
             model.train()
         if step % run["ckpt_every"] == 0 or step in evals or step == max_steps:
             torch.save(dict(model=weights(), opt=opt.state_dict(), sched=sched.state_dict(), step=step,
@@ -314,22 +330,47 @@ def run_embed(cfg, run, train, val):
         mt = metrics(scored, cfg["detector"]["fpr"])
         history.append({"C": c, "val_loss": mt["val_loss"]} | mt["pooled"])
         print(f"{run['name']}: {json.dumps(history[-1])}", flush=True)
-        best = scored if best is None or mt["pooled"][key] > max(h[key] for h in history[:-1]) else best
+        best = scored if best is None or mt["pooled"][key] >= max(h[key] for h in history[:-1]) else best   # ties: later, as fit
     return best, history
 
 
-def scores_of(model, run, tok, val):
-    vt, vl = val.text.to_numpy(), torch.tensor(val.label.to_numpy())
-    s = predict(model, len(val), lambda i: (sentence_batch(tok, run, vt[i]), vl[i, None], None), run["eval_batch_size"])
-    return val.assign(score=s.sort_values("row").score.to_numpy())
+def by_length(tok, run, texts):
+    """Row order by token length (stable), for batches that carry little padding."""
+    return np.argsort([len(x) for x in tok(list(texts), truncation=True, max_length=run["max_tokens"]).input_ids],
+                      kind="stable")
+
+
+def scores_of(model, run, tok, texts, order):
+    """Scores of texts in their order, batched in `order` (by_length); padding is on the right and masked, so a
+    sentence's score does not depend on its batch (up to floating-point rounding)."""
+    t = texts[order]
+    s = predict(model, len(t), lambda i: (sentence_batch(tok, run, t[i]), torch.zeros(len(i), 1), None),
+                run["eval_batch_size"])
+    assert (s.row.to_numpy() == np.arange(len(t))).all()          # one score per text, in batch order
+    return s.score.to_numpy()[np.argsort(order)]
 
 
 def run_sentence(cfg, run, train, val, out, max_steps):
     tok, model = tokenizer(run), Detector(run).cuda()
     texts, lab = train.text.to_numpy(), torch.tensor(train.label.to_numpy())
     w = torch.tensor(sentence_weights(train, run["weighting"]), dtype=torch.float32)
+    vt = val.text.to_numpy()
+    order = by_length(tok, run, vt)
     return fit(cfg, run, model, len(train), lambda i: (sentence_batch(tok, run, texts[i]), lab[i, None], w[i, None]),
-               lambda mdl: scores_of(mdl, run, tok, val), out, max_steps)
+               lambda mdl: val.assign(score=scores_of(mdl, run, tok, vt, order)), out, max_steps)
+
+
+def score(cfg, run, versions, splits, out):
+    """scores/<run>.parquet (version_id, score) for every version in splits, from the trained out/model.pt."""
+    assert run["kind"] == "sentence", f"{run['name']}: only sentence runs keep a model to score with"
+    tok, model = tokenizer(run), Detector(run).cuda()
+    load_trainable(model, torch.load(out / "model.pt"))
+    v = versions[versions.split.isin(splits)].reset_index(drop=True)
+    texts = v.text.to_numpy()
+    s = scores_of(model, run, tok, texts, by_length(tok, run, texts))
+    pd.DataFrame({"version_id": v.version_id, "score": s}).to_parquet(path(cfg, "scores", f"{run['name']}.parquet"),
+                                                                      index=False)
+    print(f"{run['name']}: scored {len(v)} versions of {splits}")
 
 
 def run_document(cfg, run, sents, versions, out, max_steps, smoke):
@@ -372,6 +413,7 @@ def main():
         p.add_argument("--smoke", type=int, metavar="N", help="quick check on N train and N val examples (documents "
                        "for document runs); outputs under detector/smoke/")
         p.add_argument("--max-steps", type=int, help="stop after this many optimizer steps, checkpointed")
+        p.add_argument("--score", nargs="+", metavar="SPLIT", help="score these splits with the run's model.pt")
     cfg, args = cli(__doc__, args)
     runs = expand(cfg)
     if args.list:
@@ -379,6 +421,8 @@ def main():
     run, d = runs[args.run], cfg["detector"]
     out = path(cfg, "detector", *(["smoke"] if args.smoke else []), run["name"], "x").parent
     sents, versions = pd.read_parquet(path(cfg, "sentences.parquet")), pd.read_parquet(path(cfg, "versions.parquet"))
+    if args.score:
+        return score(cfg, run, versions, args.score, out)
     if run["kind"] == "document":
         history = run_document(cfg, run, sents, versions, out, args.max_steps, args.smoke)
     else:
