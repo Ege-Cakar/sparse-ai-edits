@@ -11,7 +11,7 @@ import pandas as pd
 from . import cli, path
 from .stats import conformal_pvalues
 
-HIGHER_IS_HUMAN = {"binoculars"}   # all other scores are oriented higher = more AI-like
+HIGHER_IS_HUMAN = ("binoculars",)   # score-file prefixes (score_lm.py); all others are higher = more AI-like
 
 
 def main():
@@ -20,7 +20,7 @@ def main():
                                columns=["version_id", "source", "split", "editor", "n_words"])
     for f in sorted(Path(cfg["data_dir"], "scores").glob("*.parquet")):
         df = versions.merge(pd.read_parquet(f), on="version_id")
-        df["score"] *= -1 if f.stem in HIGHER_IS_HUMAN else 1
+        df["score"] *= -1 if f.stem.startswith(HIGHER_IS_HUMAN) else 1
         rng, out = np.random.default_rng(cfg["seed"]), []
         for source, g in df.groupby("source"):
             null = g[(g.split == "calib") & (g.editor == "human")]
