@@ -139,9 +139,13 @@ edit:
        price: {input: 1.0, cache_read: 0.05, cache_write: 1.25, output: 5.0}}
 
 lm_scores:                     # one forward pass of both models gives all three zero-shot scores
-  observer: tiiuae/falcon-7b
-  performer: tiiuae/falcon-7b-instruct
-  batch_size: 32
+  pairs:                       # both pairs (decided 2026-11-04 by Ege; review item 28)
+    falcon-7b: {observer: tiiuae/falcon-7b, performer: tiiuae/falcon-7b-instruct}   # the Binoculars paper's pair
+    llama-3-8b: {observer: meta-llama/Meta-Llama-3-8B,                              # Fast-DetectGPT README's best
+                 performer: meta-llama/Meta-Llama-3-8B-Instruct}                    # (its 2026-01-31 update)
+  splits: [calib, val, test]   # val for ensembles with the supervised detectors; train is never needed
+  batch_size: 64
+  chunk: 20000                 # versions per saved part (a preempted run resumes)
   max_tokens: 128
 
 classifier:
