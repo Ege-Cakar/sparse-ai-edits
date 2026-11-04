@@ -3,8 +3,10 @@ from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
+import pytest
 import torch
 
+from sparse_edits import detect
 from sparse_edits.detect import Docs, chunk_batch, expand, metrics, sentence_batch, sentence_weights
 
 
@@ -87,3 +89,32 @@ def test_runs_expand_over_learning_rates_and_weightings():
     assert list(runs) == ["enc_lr1e-05_global", "enc_lr1e-05_per_sentence", "enc_lr2e-05_global",
                           "enc_lr2e-05_per_sentence", "emb"]
     assert runs["enc_lr2e-05_global"]["lr"] == 2e-5 and runs["emb"]["epochs"] == 1
+
+
+class Length(torch.nn.Module):
+    """Scores each sentence by its own token count, so a score shows which row it came from."""
+    def forward(self, input_ids, attention_mask, spans):
+        return attention_mask.sum(1, keepdim=True).float()
+
+
+def test_scores_batched_by_length_come_back_in_row_order(monkeypatch):
+    monkeypatch.setattr(detect, "cuda", lambda d: d)
+    run, texts = dict(pooling="last", max_tokens=16, eval_batch_size=3), np.array(["a b c", "a", "a b c d e", "a b"])
+    order = detect.by_length(Tok(), run, texts)
+    assert order.tolist() == [1, 3, 0, 2]
+    assert detect.scores_of(Length(), run, Tok(), texts, order).tolist() == [4, 2, 6, 3]   # BOS + words
+
+
+class Linear(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.head, self.frozen = torch.nn.Linear(2, 2), torch.nn.Linear(2, 2).requires_grad_(False)
+
+
+def test_load_trainable_rejects_weights_that_do_not_fit():
+    model, state = Linear(), {k: v for k, v in Linear().state_dict().items() if k.startswith("head")}
+    detect.load_trainable(model, state)                                    # trainable weights only: fine
+    assert torch.equal(model.head.weight, state["head.weight"])
+    for bad in [{"other." + k: v for k, v in state.items()}, {"head.bias": state["head.bias"]}]:
+        with pytest.raises(SystemExit):                                    # renamed keys, or a trainable one missing
+            detect.load_trainable(model, bad)
