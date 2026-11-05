@@ -517,6 +517,11 @@ preliminary choice, where it lives, and what to check.
       it has about all-edited's tokens in distinct documents. Option (a): sources that run out (ELLIPSE and Enron,
       by an unverified estimate of their sizes) stay short rather than being filled from others, so results are
       compared per source and the pooled source mix shifts.
+    - One-pass comparison, decided 2026-11-05 by Ege: all-edited with one editor-wording drawn per document
+      (unweighted, strength and mask) against human-1pass (the same train and val documents, human), alongside the
+      10-pass all-edited arms against human-repeated, to see how close AI-edited text gets to human text at each.
+      "AI-edited" keeps the sentences whose edit was rejected human (about 6.5% of all-edited's tokens), which are
+      the only ones the mask arms train on.
     - Not run yet: document-level weights from the to-do list.
 71. Training settings. Preliminary (chosen by Claude 2026-11-04, not yet reviewed by Ege; `pretrain` in the config).
     - Documents tokenized sentence by sentence with their separators, shuffled, joined with EOS, cut into 512-token

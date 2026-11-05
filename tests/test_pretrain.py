@@ -34,6 +34,9 @@ def test_human_mixture_and_all_edited_documents():
     assert [d[1] for d in fresh] == [human[0][1]]                           # calib left out
     rep = documents(s, edits, "repeat", "none", ["a", "b"], [0.5], None)
     assert [d[1] for d in rep] == [human[0][1]] * 2                         # the same passes, without the edits
+    one = documents(s, edits, "all_edited", "mask", ["a", "b"], [0.5], np.random.default_rng(0), passes=1)
+    assert len(one) == 1 and one[0][1][0] in ("a0", "b0") and one[0][2] == [0.0] * 4
+    assert len(documents(s, edits, "repeat", "none", ["a", "b"], [0.5], None, passes=1)) == 1
 
 
 class CharTok:

@@ -9,6 +9,8 @@ Arms (pretrain.arms) pair a data recipe with a weight:
   replaced by it.
 - data repeat: each train or val human document once per training editor-wording (the documents and passes of
   all_edited, without the edits).
+An arm's passes (all_edited, repeat) caps the copies per document: all_edited then uses that many editor-wordings
+drawn per document with the seed, repeat that many human copies.
 - data fresh: the train and val human documents plus fresh/sentences.parquet's (fresh.py: new documents from the
   same sources, about pretrain.fresh_multiple times as many words where a source has them).
 - weight none: 1 everywhere; mask: 0 on an edited sentence, 1 on a human one; strength: 1 - min(actual_r, 1).
@@ -41,9 +43,10 @@ def sentence_table(sents):
     return s.assign(sep=np.where(new_doc, "", sep))
 
 
-def documents(s, edits, data, weight, editors, thetas, rng):
+def documents(s, edits, data, weight, editors, thetas, rng, passes=None):
     """[(source, texts, weights)] per training document. s: sentence_table rows; edits: (editor, sentence_id) ->
-    (text, actual_r) for the training editors' accepted edits."""
+    (text, actual_r) for the training editors' accepted edits; passes: copies per document for repeat and
+    all_edited (default: one per editor-wording)."""
     w_of = {"none": lambda r: 1.0, "mask": lambda r: 0.0, "strength": lambda r: 1.0 - min(r, 1.0)}[weight]
     out = []
     for _, g in s.groupby("doc_id", sort=True):
@@ -59,10 +62,11 @@ def documents(s, edits, data, weight, editors, thetas, rng):
             versions = [[(sep + edits[ed, sid][0], w_of(edits[ed, sid][1])) if j in pos and (ed, sid) in edits else h
                          for j, (sep, sid, h) in enumerate(zip(g.sep, g.sentence_id, human))]]
         elif has_edits and data == "repeat":   # calib documents are not used by repeat and all_edited
-            versions = [human] * len(editors)
+            versions = [human] * (passes or len(editors))
         elif has_edits:
+            eds = editors if passes is None else [editors[i] for i in rng.choice(len(editors), passes, replace=False)]
             versions = [[(sep + edits[ed, sid][0], w_of(edits[ed, sid][1])) if (ed, sid) in edits else h
-                         for sep, sid, h in zip(g.sep, g.sentence_id, human)] for ed in editors]
+                         for sep, sid, h in zip(g.sep, g.sentence_id, human)] for ed in eds]
         else:
             versions = []
         out += [(g.source.iat[0], [t for t, _ in v], [w for _, w in v]) for v in versions]
@@ -113,7 +117,7 @@ def run(cfg, arm, size, seed, s, edits, editors, tok, test):
     if (out / "metrics.json").exists():
         return print(f"{out.name}: done, skipped")
     rng = np.random.default_rng(seed)
-    docs = documents(s, edits, a["data"], a["weight"], editors, cfg["phase"]["thetas"], rng)
+    docs = documents(s, edits, a["data"], a["weight"], editors, cfg["phase"]["thetas"], rng, a.get("passes"))
     ids, w, _, _ = pack(docs, tok, c["seq_len"], rng.permutation(len(docs)))
     perm = rng.permutation(len(ids))   # windows in random order
     ids, w = ids[perm], w[perm]
