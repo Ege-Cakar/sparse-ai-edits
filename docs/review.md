@@ -511,6 +511,12 @@ preliminary choice, where it lives, and what to check.
       same documents with every weight 1; the mixture draw is the same for a given seed), and human-repeated (each
       train or val human document 10 times, calib left out: the documents, passes and tokens of all-edited without the
       edits), to separate the effect of the weights and of AI-edited text from that of more tokens.
+    - Fresh-data control, decided 2026-11-05 by Ege: human-fresh trains on the train and val human documents plus new
+      documents from the same sources (`fresh.py`: the documents after the corpus's in each seeded stream, through
+      corpus.py's repairs, segmenter and filters), 9 times each source's train and val words where it has them, so
+      it has about all-edited's tokens in distinct documents. Option (a): sources that run out (ELLIPSE and Enron,
+      by an unverified estimate of their sizes) stay short rather than being filled from others, so results are
+      compared per source and the pooled source mix shifts.
     - Not run yet: document-level weights from the to-do list.
 71. Training settings. Preliminary (chosen by Claude 2026-11-04, not yet reviewed by Ege; `pretrain` in the config).
     - Documents tokenized sentence by sentence with their separators, shuffled, joined with EOS, cut into 512-token

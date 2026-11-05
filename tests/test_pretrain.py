@@ -30,6 +30,8 @@ def test_human_mixture_and_all_edited_documents():
     full = documents(s, edits, "all_edited", "strength", ["a", "b"], [0.5], None)
     assert len(full) == 2 and full[0][1] == ["a0", " a1", "\na2", " a3"]   # one copy per editor, no calib
     assert full[0][2] == [0.75] * 4 and full[1][2] == [0.0] * 4           # 1 - min(actual_r, 1)
+    fresh = documents(s, edits, "fresh", "none", ["a", "b"], [0.5], None)
+    assert [d[1] for d in fresh] == [human[0][1]]                           # calib left out
     rep = documents(s, edits, "repeat", "none", ["a", "b"], [0.5], None)
     assert [d[1] for d in rep] == [human[0][1]] * 2                         # the same passes, without the edits
 
@@ -49,3 +51,13 @@ def test_pack_aligns_weights_and_sources_with_tokens():
     assert ids[:, :-1].flatten().tolist() == flat_ids[:6] and ids[0, -1] == ids[1, 0]   # windows overlap by one
     assert w[0].tolist() == [0.5, 0.5, 1.0, 1.0] and w[1].tolist() == [1.0, 1.0, 0.0, 0.0]
     assert names == ["enron", "xsum"] and src[1].tolist() == [1, 1, 0, 0]
+
+
+def test_fresh_take_skips_used_short_and_repeated_documents_until_the_target():
+    from sparse_edits.fresh import take
+    doc = lambda *ss: [(0, s, "llm") for s in ss]
+    docs = [("used", doc("a b c", "d e", "f")), ("short", doc("g h")), ("new1", doc("i j", "k", "l m n")),
+            ("copy", doc("x y", "z", "w")), ("new2", doc("o p", "q", "r")), ("new3", doc("s", "t", "u"))]
+    seen = {tuple((p, s) for p, s, _ in doc("x y", "z", "w"))}   # a corpus document's sentences
+    kept, n = take(docs, {"used"}, seen, 9, 3, 512)
+    assert [k for k, _ in kept] == ["new1", "new2"] and n == 10   # stops once 9 words are reached

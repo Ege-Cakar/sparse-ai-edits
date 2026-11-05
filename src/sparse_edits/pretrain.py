@@ -9,6 +9,8 @@ Arms (pretrain.arms) pair a data recipe with a weight:
   replaced by it.
 - data repeat: each train or val human document once per training editor-wording (the documents and passes of
   all_edited, without the edits).
+- data fresh: the train and val human documents plus fresh/sentences.parquet's (fresh.py: new documents from the
+  same sources, about pretrain.fresh_multiple times as many words where a source has them).
 - weight none: 1 everywhere; mask: 0 on an edited sentence, 1 on a human one; strength: 1 - min(actual_r, 1).
 A sentence's weight applies to its tokens (end-of-document tokens get 1). The loss is the weighted token cross-entropy,
 divided by the tokens in the step times the mean weight of the arm's training tokens (weighted risk over the corpus).
@@ -47,7 +49,9 @@ def documents(s, edits, data, weight, editors, thetas, rng):
     for _, g in s.groupby("doc_id", sort=True):
         human = [(sep + t, 1.0) for sep, t in zip(g.sep, g.text)]
         has_edits = g.split.iat[0] != "calib"
-        if data == "human" or (data == "mixture" and not has_edits):
+        if data == "fresh":   # calib documents are left out, as in repeat and all_edited
+            versions = [human] if has_edits else []
+        elif data == "human" or (data == "mixture" and not has_edits):
             versions = [human]
         elif data == "mixture":
             ed, n = editors[rng.integers(len(editors))], len(g)
@@ -167,13 +171,18 @@ def main():
     e = v[v.editor.isin(editors) & v.split.isin(["train", "val"])]
     edits = {(ed, sid): (t, r) for ed, sid, t, r in zip(e.editor, e.sentence_id, e.text, e.actual_r)}
     s = sentence_table(sents[sents.split.isin(c["train_splits"])])
+    arms = args.arms or list(c["arms"])
+    if any(c["arms"][a]["data"] == "fresh" for a in arms):
+        fresh = pd.read_parquet(path(cfg, "fresh", "sentences.parquet"))
+        s_fresh = sentence_table(pd.concat([sents[sents.split.isin(c["train_splits"])], fresh]))
     test_docs = documents(sentence_table(sents[sents.split == c["eval_split"]]), {}, "human", "none", [], [], None)
     test_ids, _, test_src, names = pack(test_docs, tok, c["seq_len"], range(len(test_docs)))
     print(f"editors {editors}; {len(test_ids)} test windows of {c['seq_len'] + 1} tokens", flush=True)
-    for arm in args.arms or c["arms"]:
+    for arm in arms:
         for size in args.sizes or c["sizes"]:
             for seed in args.seeds or c["seeds"]:
-                run(cfg, arm, size, seed, s, edits, editors, tok, (test_ids, test_src, names))
+                run(cfg, arm, size, seed, s_fresh if c["arms"][arm]["data"] == "fresh" else s, edits, editors, tok,
+                    (test_ids, test_src, names))
 
 
 if __name__ == "__main__":
