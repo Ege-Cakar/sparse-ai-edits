@@ -22,7 +22,8 @@
 set -u
 source slurm/env.sh
 module load cuda/13.3.1-fasrc01                         # nvcc for vLLM's JIT kernels
-export HF_HOME=/n/holystore01/LABS/pehlevan_lab/Users/ege/huggingface TQDM_MININTERVAL=60
+export HF_HOME=/n/holystore01/LABS/pehlevan_lab/Users/ege/huggingface TQDM_MININTERVAL=60 PATH=$VENV/bin:$PATH   # ninja
+
 PORT=$((20000 + SLURM_JOB_ID % 20000))                  # another job on the node may hold 8000
 CFG=slurm_outs/config_$SLURM_JOB_ID.yaml
 sed "s|localhost:8000|localhost:$PORT|" configs/default.yaml > $CFG
