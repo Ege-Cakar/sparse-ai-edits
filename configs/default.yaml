@@ -138,6 +138,33 @@ edit:
        api_key_env: ANTHROPIC_API_KEY, heldout: false, params: {max_tokens: 1024, thinking: {type: between_tools}},
        price: {input: 1.0, cache_read: 0.05, cache_write: 1.25, output: 5.0}}
 
+pretrain:                      # week-4 LMs (pretrain.py; docs/review.md items 67-71)
+  tokenizer: EleutherAI/pythia-160m   # Pythia's GPT-NeoX BPE (item 69)
+  vocab_size: 50304            # the tokenizer's 50,277 ids, padded as in Pythia
+  train_splits: [train, val, calib]
+  eval_split: test             # human documents only, held out from every arm (item 67)
+  arms:                        # data recipe and per-sentence weight (item 70)
+    human: {data: human, weight: none}
+    mixture-mask: {data: mixture, weight: mask}
+    mixture-strength: {data: mixture, weight: strength}
+    all-edited-mask: {data: all_edited, weight: mask}
+    all-edited-strength: {data: all_edited, weight: strength}
+  sizes:                       # item 68; d_ff = 8/3 d_model rounded up to a multiple of 4
+    chinchilla: {d_model: 64, n_layers: 6, n_heads: 4, d_ff: 172}
+    data-starved: {d_model: 128, n_layers: 8, n_heads: 4, d_ff: 344}
+  seeds: [0, 1, 2]
+  # Preliminary (item 71): 1 epoch of 512-token windows, 16 per step, AdamW, cosine decay to 10% after 5% warmup
+  seq_len: 512
+  batch_size: 16
+  lr: 2.0e-3
+  warmup: 0.05
+  min_lr_frac: 0.1
+  weight_decay: 0.1
+  betas: [0.9, 0.95]
+  max_grad_norm: 1.0
+  evals: 10                    # test perplexity this many times per run
+  eval_batch_size: 64
+
 lm_scores:                     # one forward pass of both models gives all three zero-shot scores
   pairs:                       # both pairs (decided 2026-11-04 by Ege; review item 28)
     falcon-7b: {observer: tiiuae/falcon-7b, performer: tiiuae/falcon-7b-instruct}   # the Binoculars paper's pair
