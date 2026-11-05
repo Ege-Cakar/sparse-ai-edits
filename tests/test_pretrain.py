@@ -30,6 +30,8 @@ def test_human_mixture_and_all_edited_documents():
     full = documents(s, edits, "all_edited", "strength", ["a", "b"], [0.5], None)
     assert len(full) == 2 and full[0][1] == ["a0", " a1", "\na2", " a3"]   # one copy per editor, no calib
     assert full[0][2] == [0.75] * 4 and full[1][2] == [0.0] * 4           # 1 - min(actual_r, 1)
+    rep = documents(s, edits, "repeat", "none", ["a", "b"], [0.5], None)
+    assert [d[1] for d in rep] == [human[0][1]] * 2                         # the same passes, without the edits
 
 
 class CharTok:

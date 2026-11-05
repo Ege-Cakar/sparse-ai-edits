@@ -507,7 +507,11 @@ preliminary choice, where it lives, and what to check.
       tokens.
     - The held-out editor's (Qwen's) edits are not used. The seed sets the model initialization, the data order and
       the mixture draw.
-    - Not run yet: the unweighted mixture and document-level weights from the to-do list.
+    - Controls, decided 2026-11-05 by Ege after the first results: mixture-unweighted and all-edited-unweighted (the
+      same documents with every weight 1; the mixture draw is the same for a given seed), and human-repeated (each
+      train or val human document 10 times, calib left out: the documents, passes and tokens of all-edited without the
+      edits), to separate the effect of the weights and of AI-edited text from that of more tokens.
+    - Not run yet: document-level weights from the to-do list.
 71. Training settings. Preliminary (chosen by Claude 2026-11-04, not yet reviewed by Ege; `pretrain` in the config).
     - Documents tokenized sentence by sentence with their separators, shuffled, joined with EOS, cut into 512-token
       windows (plus one target), windows shuffled; 16 windows per step, 1 epoch.

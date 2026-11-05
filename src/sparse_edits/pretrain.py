@@ -7,6 +7,8 @@ Arms (pretrain.arms) pair a data recipe with a weight:
   position without one stays human); calib documents have no edits and stay human.
 - data all_edited: each train or val document once per training editor-wording, every sentence with an accepted edit
   replaced by it.
+- data repeat: each train or val human document once per training editor-wording (the documents and passes of
+  all_edited, without the edits).
 - weight none: 1 everywhere; mask: 0 on an edited sentence, 1 on a human one; strength: 1 - min(actual_r, 1).
 A sentence's weight applies to its tokens (end-of-document tokens get 1). The loss is the weighted token cross-entropy,
 divided by the tokens in the step times the mean weight of the arm's training tokens (weighted risk over the corpus).
@@ -52,7 +54,9 @@ def documents(s, edits, data, weight, editors, thetas, rng):
             pos = set(rng.choice(n, round(n ** (1 - thetas[rng.integers(len(thetas))])), replace=False).tolist())
             versions = [[(sep + edits[ed, sid][0], w_of(edits[ed, sid][1])) if j in pos and (ed, sid) in edits else h
                          for j, (sep, sid, h) in enumerate(zip(g.sep, g.sentence_id, human))]]
-        elif has_edits:   # all_edited: calib documents are not used
+        elif has_edits and data == "repeat":   # calib documents are not used by repeat and all_edited
+            versions = [human] * len(editors)
+        elif has_edits:
             versions = [[(sep + edits[ed, sid][0], w_of(edits[ed, sid][1])) if (ed, sid) in edits else h
                          for sep, sid, h in zip(g.sep, g.sentence_id, human)] for ed in editors]
         else:
