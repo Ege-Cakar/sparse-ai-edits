@@ -480,6 +480,42 @@ preliminary choice, where it lives, and what to check.
 57. Token budget. Decided 2026-10-18 by Ege, tentatively.
     - 2.5B tokens, the Chinchilla-optimal budget for 125M (about 20 tokens per parameter). Money goes to the dataset
       rather than more training ("the dataset feels more important so we shouldn't spend more money on training").
+    - Superseded 2026-11-04 by items 67 and 68: the corpus's own documents and much smaller models.
+67. Pretraining data. Decided 2026-11-04 by Ege.
+    - The detection corpus's own documents instead of C4. The models train on the train, val and calib splits
+      (11,740 documents, 4.64M words, about 6.3M Pythia tokens by an estimated 1.35 tokens per word) and are evaluated
+      by perplexity on the test split's human documents (2,914 documents, 1.10M words), held out from every arm.
+    - Calib documents have no edits, so they stay human in every arm.
+68. Model sizes. Decided 2026-11-04 by Ege.
+    - Llama-style blocks (RoPE, SwiGLU, RMSNorm), tied embeddings, 1 epoch.
+    - Chinchilla-optimal: d_model 64, 6 layers, about 0.3M non-embedding parameters (about 20 tokens per parameter
+      on the human training tokens). Data-starved: d_model 128, 8 layers, about 1.6M (about 5x past Chinchilla).
+69. Tokenizer. Decided 2026-11-04 by Ege: Pythia's (GPT-NeoX BPE, about 50k tokens). Llama 3's 128k vocabulary was
+    set aside because its embedding table would be dozens of times the rest of models this small.
+70. Arms and weights. Decided 2026-11-04 by Ege; every run at both sizes with 3 seeds, for error bars.
+    - human: the human documents.
+    - mixture (a mean over editors and sparsity): each train or val document once, with theta drawn uniformly from
+      `phase.thetas`, one editor-wording drawn uniformly from the training editors' 10, and m = round(n^(1 - theta))
+      random sentences replaced by that editor-wording's accepted edit (a position without one stays human), as in
+      the phase-diagram documents.
+    - all-edited ("squeeze as much information as possible from AI-edited text"): each train or val document once
+      per training editor-wording (10 copies), every sentence replaced by that editor-wording's accepted edit where
+      one exists; calib documents (no edits) are left out. With the mask weight only the sentences an editor-wording
+      left without an accepted edit carry weight, with the AI-edited sentences as context.
+    - Oracle weights, per sentence and applied to its tokens: mask, 0 for an edited sentence and 1 for a human one;
+      strength, 1 - min(actual_r, 1), where actual_r is changed words over words. The loss is the weighted mean over
+      tokens.
+    - The held-out editor's (Qwen's) edits are not used. The seed sets the model initialization, the data order and
+      the mixture draw.
+    - Not run yet: the unweighted mixture and document-level weights from the to-do list.
+71. Training settings. Preliminary (chosen by Claude 2026-11-04, not yet reviewed by Ege; `pretrain` in the config).
+    - Documents tokenized sentence by sentence with their separators, shuffled, joined with EOS, cut into 512-token
+      windows (plus one target), windows shuffled; 16 windows per step, 1 epoch.
+    - AdamW, lr 2e-3, betas (0.9, 0.95), weight decay 0.1 on matrices, gradient clipping 1.0, 5% linear warmup then
+      cosine decay to 10%; bf16 autocast.
+    - Loss: weighted token cross-entropy divided by the step's tokens times the arm's mean weight, so each step's
+      gradient scales with how much weight it carries (weighted risk over the corpus); EOS tokens get weight 1.
+    - Test perplexity on the test split's human documents, pooled and per source, 10 times per run.
 
 ## HC under dependence (`hc_variants.py`)
 
