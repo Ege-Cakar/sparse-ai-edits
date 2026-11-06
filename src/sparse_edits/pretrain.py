@@ -111,6 +111,14 @@ def perplexity(model, ids, src, names, bs):
     return {"pooled": math.exp(tot.sum() / cnt.sum())} | {n: math.exp(t / c) for n, t, c in zip(names, tot, cnt)}
 
 
+def llama(c, z):
+    """The Llama-style model of size z (pretrain.sizes entry) under pretrain settings c."""
+    return LlamaForCausalLM(LlamaConfig(
+        vocab_size=c["vocab_size"], hidden_size=z["d_model"], intermediate_size=z["d_ff"],
+        num_hidden_layers=z["n_layers"], num_attention_heads=z["n_heads"], num_key_value_heads=z["n_heads"],
+        max_position_embeddings=c["seq_len"], tie_word_embeddings=True))
+
+
 def run(cfg, arm, size, seed, s, edits, editors, tok, test):
     c, a, z = cfg["pretrain"], cfg["pretrain"]["arms"][arm], cfg["pretrain"]["sizes"][size]
     out = path(cfg, "pretrain", f"{arm}_{size}_seed{seed}", "x").parent
@@ -122,10 +130,7 @@ def run(cfg, arm, size, seed, s, edits, editors, tok, test):
     perm = rng.permutation(len(ids))   # windows in random order
     ids, w = ids[perm], w[perm]
     torch.manual_seed(seed)
-    model = LlamaForCausalLM(LlamaConfig(
-        vocab_size=c["vocab_size"], hidden_size=z["d_model"], intermediate_size=z["d_ff"],
-        num_hidden_layers=z["n_layers"], num_attention_heads=z["n_heads"], num_key_value_heads=z["n_heads"],
-        max_position_embeddings=c["seq_len"], tie_word_embeddings=True)).cuda()
+    model = llama(c, z).cuda()
     n_emb = model.get_input_embeddings().weight.numel()
     n_body = sum(p.numel() for p in model.parameters()) - n_emb
     decay = [p for p in model.parameters() if p.dim() >= 2]
