@@ -154,6 +154,16 @@ preliminary choice, where it lives, and what to check.
       GLM 5.3 Flash (320B, 18B active, MIT) was set up on 4 H200s and dropped the same day to stay within the RunPod
       credit ($149); to run later. Rates on 2026-10-31: gpt-oss 3,600 edits/min (H200), Gemma 4 1,950 (H200),
       Qwen3.5 1,390 (B200); after 3 attempts 7.2%, 5.4% and 8.8% of sentences stay unedited.
+    - 2026-11-01 (Ege): gpt-6-luna (reasoning_effort none) and Claude Haiku 5.5 (thinking disabled) join as training
+      editors, both wordings, every split, at most $50 each, through each vendor's Batch API (half price) with
+      prompt caching: Anthropic requests mark the document part (after the system prompt) as a cached prefix;
+      OpenAI requests carry a per-document prompt_cache_key. Neither model accepts sampling parameters, so both
+      sample at their defaults. A 1,000-request pilot per editor and wording (seeded whole documents) measures
+      tokens, cache hits and rejections; its records are part of the dataset, so the full run skips them.
+    - 2026-11-01 (Ege): luna requests after the first 1,000 light / 25,035 edit records go through flex processing
+      (`service_tier: flex`, billed at Batch rates, answered per request), which is faster than the Batch API,
+      whose rounds waited on stalled last requests. Same model, prompt and settings; only the serving tier differs,
+      and each response's tier is in the `.usage` log.
     - Review: whether to hold out Qwen 3.5 (an unseen lab) and also hold out other versions of training editors (an
       idea from Ege) to test version generalization. Open-weight models through OpenRouter can be served by
       different providers, some with quantized weights: pin a provider and record it. Turn reasoning off where the
@@ -220,8 +230,8 @@ preliminary choice, where it lives, and what to check.
     - Review: the proposal aims for up to about 100 versions per sentence in the detection set (10 editors x 7
       strengths gives 70); whether training samples are drawn independently per editor or shared across editors
       (same sentences and strengths, a paired design). `edit --dry-run` prints request counts.
-19. Which splits are edited. TBD.
-    - Preliminary: train, val, test; calib stays human-only (`edit.splits`).
+19. Which splits are edited. Decided 2026-10-31 by Ege: train, val, test; calib stays human-only (`edit.splits`),
+    for every editor and wording, the held-out one included.
 20. Sampling parameters and reasoning effort. Decided 2026-10-31 by Ege: each model's recommended settings.
     - gpt-oss-120b: temperature 1.0, top_p 1.0 (OpenAI), `reasoning_effort: low` (the lowest it has; vLLM rejects
       none), max_tokens 4096 counting reasoning; the reasoning text is not saved. Qwen3.5-122B: thinking off, Qwen's
@@ -303,6 +313,60 @@ preliminary choice, where it lives, and what to check.
 33. Fine-tuned classifier. TBD.
     - Preliminary: `answerdotai/ModernBERT-base`, lr 3e-5, 2 epochs, batch 64, max 128 tokens, best epoch by val loss,
       no hyperparameter search. Score = logit(edited) - logit(human).
+    - Decided 2026-10-31 by Ege: search both detectors (isolated sentence; document with the target sentence marked)
+      at once, over embedding models with a trained head, fine-tuned modern encoders and fine-tuned decoder LLMs, as a
+      small grid on a train subsample. Every run logs val loss, AUROC and TPR at 0.1%, 1% and 5% FPR; the winner is
+      the highest TPR at 1% FPR (the probability that an edited sentence gets p <= 0.01, which drives HC and
+      Bonferroni). Selection uses only the training editors' val edits (gpt-oss, Gemma, later GLM 5.3 Flash, which
+      becomes a training editor); Qwen3.5 val and test stay untouched until the final model. Val metrics are also
+      reported per training editor, pass ("edit", "light") and source, so in-distribution detection is checked
+      editor by editor before any held-out test.
+    - Decided 2026-11-01 by Ege, isolated-sentence grid (20% of train documents): frozen embedders with a
+      logistic-regression head (Qwen3-Embedding 0.6B/4B/8B, EmbeddingGemma-300m, Llama-Embed-Nemotron-8B);
+      encoders fine-tuned end to end (DeBERTa-v3-large, ModernBERT-large, Ettin-encoder-1B) x 3 learning rates x
+      2 weightings (global class weights vs per-sentence weights); decoders with LoRA and a classification head
+      (Llama-3.1-8B, OLMo-3-7B, Ettin-decoder-1B) x 2 learning rates. A Qwen decoder as a family-bias arm was not
+      chosen. Class imbalance: inverse-frequency class weights in the cross-entropy.
+    - Decided 2026-11-01 by Ege, document detector (backbones ModernBERT-large, Ettin-encoder-1B, Llama-3.1-8B,
+      started in parallel with the isolated grid):
+      - Training versions: splits are by document and fixed first; versions are built from train documents only.
+        Per document of n sentences: one all-human version, plus, for every training editor and pass, one version per
+        theta in {0.1, ..., 0.9} with m = round(n^(1 - theta)) sentences replaced by that editor-pass's accepted
+        edits (one editor-pass per version, as in the phase-diagram documents). Val documents get versions once, by
+        the same recipe with a fixed seed, saved with their edit positions and reused by every run.
+      - Every sentence of every version is a labelled example (edited 1, human 0), class-weighted.
+      - One pass per version: encoders pool each sentence's tokens and label all sentences at once. Llama reads the
+        chunk twice under its usual causal attention and each sentence is scored from its last token in the second
+        copy, which has seen the whole chunk (echo; decided 2026-11-01 by Ege, replacing per-sentence probes behind a
+        custom attention mask: same token cost, standard attention, a published method, Springer et al. 2024), so a
+        sentence's score depends only on the document.
+      - Long documents are cut at the end and the remainder becomes the next chunk, at sentence boundaries, so every
+        sentence is labelled. Chunk length: 2,048 tokens (decided 2026-11-01 by Ege).
+      - Caveats: each swapped-in edit was generated against the all-human document, so multi-edit versions are
+        stitched from independent single-sentence edits (test documents are built the same way); a human sentence's
+        score depends on its neighbors (item 27), so per-sentence p-values for recovery are not exactly uniform in
+        edited documents, while the all-human calib documents still give a valid null for the global test.
+    - Decided 2026-11-01 by Ege: Llama-3.1-8B is the base model (meta-llama/Llama-3.1-8B); the embedder is
+      EmbeddingGemma 2 (google/embeddinggemma-2), not embeddinggemma-300m. Hyperparameters from a literature and
+      model-card search (2026-11-01), all in `detector` in the config:
+      - Embedders: each card's classification input (Qwen3 and Nemotron: "Instruct: Classify the given sentence as
+        either human-written or edited by an AI model\nQuery:", our wording, as the cards ask for a task
+        instruction; EmbeddingGemma 2: its "Classification" prompt), the model's own pooling, L2-normalized, 512
+        tokens; standardized on train, then L2 logistic regression with balanced class weights, C in
+        10^{-6,-4,...,6} chosen on val (CLIP linear-probe protocol; the interval refinement is not done).
+      - Encoders: 2 epochs, effective batch 32, linear decay after 6% warmup, weight decay 0.01, gradient clipping
+        1.0, 256 tokens, bf16 autocast with fp32 weights; DeBERTa-v3-large LRs 5e-6, 1e-5, 2e-5 (paper grid, card
+        6e-6; 2e-5 is above the authors' grid), CLS pooling, AdamW eps 1e-6; ModernBERT-large 1e-5, 3e-5, 5e-5 (its
+        GLUE picks), mean pooling, betas (0.9, 0.98), eps 1e-6; Ettin-encoder-1B 1e-5, 2e-5, 4e-5 (thin evidence:
+        the paper reports only its sweep range), as ModernBERT.
+      - Decoders: LoRA r 16, alpha 32, dropout 0.05 on all linear layers, head trained in full, last-token pooling,
+        right padding; LRs 5e-5 and 2e-4 (QLoRA's 2e-4, LS-LLaMA's 8e-5; LoRA's best LR is about 10x full
+        fine-tuning); otherwise as the encoders. OLMo-3-7B is the base model (allenai/Olmo-3-1025-7B), as for Llama.
+      - Document detectors, one setting each (thin evidence: carried over from the sentence grid): 3 epochs,
+        8 chunks per step, 10% warmup; ModernBERT-large 3e-5, Ettin-encoder-1B 2e-5, Llama-3.1-8B LoRA 1e-4 with
+        gradient checkpointing, pooling each sentence's last token in the echo copy.
+      - Checkpoint selection: 10 val evaluations per epoch (document detectors: 1), keeping the best TPR at 1% FPR;
+        the same val then picks the search winner. Selection is on the training editors' val only.
 34. Embedding baseline. TBD.
     - Preliminary: `sentence-transformers/all-mpnet-base-v2`, normalized embeddings, `LogisticRegressionCV(Cs=10, cv=5)`.
     - Review: semantic embedders are trained to ignore paraphrase, so they may be a poor fit for edit detection; a
@@ -453,6 +517,57 @@ preliminary choice, where it lives, and what to check.
 57. Token budget. Decided 2026-10-18 by Ege, tentatively.
     - 2.5B tokens, the Chinchilla-optimal budget for 125M (about 20 tokens per parameter). Money goes to the dataset
       rather than more training ("the dataset feels more important so we shouldn't spend more money on training").
+    - Superseded 2026-11-04 by items 67 and 68: the corpus's own documents and much smaller models.
+67. Pretraining data. Decided 2026-11-04 by Ege.
+    - The detection corpus's own documents instead of C4. The models train on the train, val and calib splits
+      (11,740 documents, 4.64M words, about 6.3M Pythia tokens by an estimated 1.35 tokens per word) and are evaluated
+      by perplexity on the test split's human documents (2,914 documents, 1.10M words), held out from every arm.
+    - Calib documents have no edits, so they stay human in every arm.
+68. Model sizes. Decided 2026-11-04 by Ege.
+    - Llama-style blocks (RoPE, SwiGLU, RMSNorm), tied embeddings, 1 epoch.
+    - Chinchilla-optimal: d_model 64, 6 layers, about 0.3M non-embedding parameters (about 20 tokens per parameter
+      on the human training tokens). Data-starved: d_model 128, 8 layers, about 1.6M (about 5x past Chinchilla).
+69. Tokenizer. Decided 2026-11-04 by Ege: Pythia's (GPT-NeoX BPE, about 50k tokens). Llama 3's 128k vocabulary was
+    set aside because its embedding table would be dozens of times the rest of models this small.
+70. Arms and weights. Decided 2026-11-04 by Ege; every run at both sizes with 3 seeds, for error bars.
+    - human: the human documents.
+    - mixture (a mean over editors and sparsity): each train or val document once, with theta drawn uniformly from
+      `phase.thetas`, one editor-wording drawn uniformly from the training editors' 10, and m = round(n^(1 - theta))
+      random sentences replaced by that editor-wording's accepted edit (a position without one stays human), as in
+      the phase-diagram documents.
+    - all-edited ("squeeze as much information as possible from AI-edited text"): each train or val document once
+      per training editor-wording (10 copies), every sentence replaced by that editor-wording's accepted edit where
+      one exists; calib documents (no edits) are left out. With the mask weight only the sentences an editor-wording
+      left without an accepted edit carry weight, with the AI-edited sentences as context.
+    - Oracle weights, per sentence and applied to its tokens: mask, 0 for an edited sentence and 1 for a human one;
+      strength, 1 - min(actual_r, 1), where actual_r is changed words over words. The loss is the weighted mean over
+      tokens.
+    - The held-out editor's (Qwen's) edits are not used. The seed sets the model initialization, the data order and
+      the mixture draw.
+    - Controls, decided 2026-11-05 by Ege after the first results: mixture-unweighted and all-edited-unweighted (the
+      same documents with every weight 1; the mixture draw is the same for a given seed), and human-repeated (each
+      train or val human document 10 times, calib left out: the documents, passes and tokens of all-edited without the
+      edits), to separate the effect of the weights and of AI-edited text from that of more tokens.
+    - Fresh-data control, decided 2026-11-05 by Ege: human-fresh trains on the train and val human documents plus new
+      documents from the same sources (`fresh.py`: the documents after the corpus's in each seeded stream, through
+      corpus.py's repairs, segmenter and filters), 9 times each source's train and val words where it has them, so
+      it has about all-edited's tokens in distinct documents. Option (a): sources that run out (ELLIPSE and Enron,
+      by an unverified estimate of their sizes) stay short rather than being filled from others, so results are
+      compared per source and the pooled source mix shifts.
+    - One-pass comparison, decided 2026-11-05 by Ege: all-edited with one editor-wording drawn per document
+      (unweighted, strength and mask) against human-1pass (the same train and val documents, human), alongside the
+      10-pass all-edited arms against human-repeated, to see how close AI-edited text gets to human text at each.
+      "AI-edited" keeps the sentences whose edit was rejected human (about 6.5% of all-edited's tokens), which are
+      the only ones the mask arms train on.
+    - Not run yet: document-level weights from the to-do list.
+71. Training settings. Preliminary (chosen by Claude 2026-11-04, not yet reviewed by Ege; `pretrain` in the config).
+    - Documents tokenized sentence by sentence with their separators, shuffled, joined with EOS, cut into 512-token
+      windows (plus one target), windows shuffled; 16 windows per step, 1 epoch.
+    - AdamW, lr 2e-3, betas (0.9, 0.95), weight decay 0.1 on matrices, gradient clipping 1.0, 5% linear warmup then
+      cosine decay to 10%; bf16 autocast.
+    - Loss: weighted token cross-entropy divided by the step's tokens times the arm's mean weight, so each step's
+      gradient scales with how much weight it carries (weighted risk over the corpus); EOS tokens get weight 1.
+    - Test perplexity on the test split's human documents, pooled and per source, 10 times per run.
 
 ## HC under dependence (`hc_variants.py`)
 
