@@ -5,10 +5,12 @@
                         r_doc = max(mu_doc, 0)^2 / (2 log n). Hexagon colour = share of its documents HC rejects.
                         r_doc uses the true edit positions, so it places a document; it is not an estimate.
   type1.png             rejection rate of each global test on human-only whole documents (theta = inf), per
-                        detector, with Wilson intervals; the dashed line is the nominal level.
+                        detector, with Wilson intervals, under iid thresholds and, where phase.py produced them,
+                        thresholds for the within-document correlation; the dashed line is the nominal level.
   power.png             HC rejection rate against theta per detector, by document length band (editors pooled),
                         with Wilson intervals; the grey line is the same detector's rate on human-only documents.
-All use the conformal null.
+All use conformal p-values; phase and power figures use the correlated thresholds (null conformal_dependent)
+when present, else the iid ones.
 """
 from pathlib import Path
 
@@ -27,9 +29,15 @@ TESTS = {"reject_min_p": "min-p", "reject_hc": "HC", "reject_hc_plus": "HC+", "r
 BANDS = ([15, 31, 63, np.inf], ["16-31", "32-63", "64+"])
 
 
-def whole_docs(cfg, detector):
+NULLS = {"conformal": "i.i.d. thresholds", "conformal_dependent": "correlated thresholds"}
+
+
+def whole_docs(cfg, detector, null=None):
+    """Whole-mode per-document rows under one null; by default the correlated thresholds when present."""
     d = pd.read_parquet(path(cfg, "phase_docs", f"{detector}.parquet"))
-    return d[(d["mode"] == "whole") & (d["null"] == "conformal")]
+    d = d[d["mode"] == "whole"]
+    null = null or ("conformal_dependent" if (d["null"] == "conformal_dependent").any() else "conformal")
+    return d[d["null"] == null].assign(null_label=NULLS[null])
 
 
 def doc_coordinates(d):
@@ -55,7 +63,7 @@ def phase_figure(cfg, detector, alpha):
         draw_boundaries(ax, ymax)
     left.set(title="Gaussian simulation, n = 16", ylabel=r"$r$  ($\mu = \sqrt{2 r \log n}$)")
     at_zero = (r == 0).mean()
-    right.set_title(f"{detector}, whole test documents (n >= 16)")
+    right.set_title(f"{detector}, whole test documents (n >= 16)\n{d.null_label.iloc[0]}", fontsize=10)
     right.text(0.99, 0.97, f"{len(d):,} draws (document x editor x theta)\n{at_zero:.0%} at r = 0; "
                "hexagons with >= 20 draws",
                transform=right.transAxes, ha="right", va="top", fontsize=8, color=INK_2)
@@ -66,21 +74,25 @@ def phase_figure(cfg, detector, alpha):
 
 
 def type1_figure(cfg, detectors, alpha, level):
-    fig, ax = plt.subplots(figsize=(7, 3.8), constrained_layout=True)
-    width = 0.8 / len(detectors)
-    for j, det in enumerate(detectors):
-        d = whole_docs(cfg, det).query("theta == inf")
-        rate = np.array([d[t].mean() for t in TESTS])
-        lo, hi = np.array([wilson(d[t].sum(), len(d), level) for t in TESTS]).T
-        x = np.arange(len(TESTS)) + (j - (len(detectors) - 1) / 2) * width
-        ax.bar(x, rate, width * 0.92, color=SERIES[j], label=f"{det} ({len(d):,} documents)")
-        ax.errorbar(x, rate, yerr=[rate - lo, hi - rate], fmt="none", ecolor=INK, elinewidth=1, capsize=3)
-    ax.axhline(alpha, color=INK_2, ls="--", lw=1)
-    ax.annotate(f"nominal {alpha:g}", (len(TESTS) - 0.5, alpha), ha="right", va="bottom", fontsize=8, color=INK_2)
-    ax.set(xticks=range(len(TESTS)), xticklabels=TESTS.values(), ylabel="rejection rate",
-           title="Global tests on human-only test documents (whole, n >= 16)")
-    ax.spines[["top", "right"]].set_visible(False)
-    ax.legend(frameon=False, fontsize=8, loc="upper left")
+    fig, axes = plt.subplots(1, len(detectors), figsize=(5 * len(detectors), 3.8), sharey=True,
+                             constrained_layout=True, squeeze=False)
+    for ax, det in zip(axes[0], detectors):
+        nulls = [n for n in NULLS if len(whole_docs(cfg, det, n))]
+        width = 0.8 / len(nulls)
+        for j, null in enumerate(nulls):
+            d = whole_docs(cfg, det, null).query("theta == inf")
+            rate = np.array([d[t].mean() for t in TESTS])
+            lo, hi = np.array([wilson(d[t].sum(), len(d), level) for t in TESTS]).T
+            x = np.arange(len(TESTS)) + (j - (len(nulls) - 1) / 2) * width
+            ax.bar(x, rate, width * 0.92, color=SERIES[j], label=NULLS[null])
+            ax.errorbar(x, rate, yerr=[rate - lo, hi - rate], fmt="none", ecolor=INK, elinewidth=1, capsize=3)
+        ax.axhline(alpha, color=INK_2, ls="--", lw=1)
+        ax.annotate(f"nominal {alpha:g}", (len(TESTS) - 0.5, alpha), ha="right", va="bottom", fontsize=8,
+                    color=INK_2)
+        ax.set(xticks=range(len(TESTS)), xticklabels=TESTS.values(), title=f"{det} ({len(d):,} human documents)")
+        ax.spines[["top", "right"]].set_visible(False)
+        ax.legend(frameon=False, fontsize=8, loc="upper left")
+    axes[0, 0].set_ylabel("rejection rate on human-only documents")
     fig.savefig(path(cfg, "figures_report", "type1.png"), dpi=200)
     plt.close(fig)
 
@@ -99,10 +111,9 @@ def power_figure(cfg, detectors, level):
             ax.fill_between(s.index, lo, hi, color=SERIES[k], alpha=0.15, lw=0)
             ax.plot(s.index, rate, color=SERIES[k], lw=2, marker="o", ms=4,
                     label=f"n {band} ({g.doc_n.size // g.theta.nunique() // g.editor.nunique():,} docs)")
-        ax.axhline(null, color=INK_2, ls="--", lw=1)
-        ax.annotate("human-only documents", (0.1, null), xytext=(0, 3), textcoords="offset points", ha="left",
-                    va="bottom", fontsize=8, color=INK_2, bbox=dict(fc="white", ec="none", pad=0.5))
-        ax.set(title=det, xlabel=r"$\vartheta$  (m = round($n^{1-\vartheta}$) edited sentences)", ylim=(0, None))
+        ax.axhline(null, color=INK_2, ls="--", lw=1, label="human-only documents")
+        ax.set(title=f"{det}, {d.null_label.iloc[0]}", xlabel=r"$\vartheta$  (m = round($n^{1-\vartheta}$) edited sentences)",
+               ylim=(0, None))
         ax.spines[["top", "right"]].set_visible(False)
         ax.legend(frameon=False, fontsize=8, title="length band, editors pooled", title_fontsize=8)
     axes[0, 0].set_ylabel("HC rejection rate")

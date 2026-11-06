@@ -2,8 +2,8 @@ import numpy as np
 from scipy.stats import binom, false_discovery_control, kstest, norm
 
 from sparse_edits.stats import (bh, conformal_pvalues, detection_boundary, empirical_null, eps_lower, eps_storey,
-                                exact_recovery_boundary, global_tests, hc, n_edited, null_thresholds, sample_truth,
-                                wilson)
+                                exact_recovery_boundary, global_tests, hc, intraclass_correlation, n_edited,
+                                null_thresholds, sample_truth, wilson)
 
 rng = np.random.default_rng(0)
 
@@ -90,3 +90,25 @@ def test_wilson_known_values():
     assert np.allclose(wilson(0, 10, 0.95), (0, 0.2775), atol=1e-4)
     lo, hi = wilson(50, 100, 0.95)
     assert np.isclose(lo + hi, 1) and np.isclose(hi, 0.5962, atol=1e-4)
+
+
+def equicorrelated_p(docs, n, rho, rng):
+    return norm.sf(np.sqrt(rho) * rng.standard_normal((docs, 1)) + np.sqrt(1 - rho) * rng.standard_normal((docs, n)))
+
+
+def test_dependent_thresholds_restore_level_that_iid_thresholds_lose():
+    n, rho = 16, 0.2
+    p = equicorrelated_p(50000, n, rho, rng)
+    iid, dep = null_thresholds(n, 0.05, 0.5, 100000, 0), null_thresholds(n, 0.05, 0.5, 100000, 0, rho)
+    assert null_thresholds(n, 0.05, 0.5, 100000, 0, 0.0) == iid                 # rho = 0 is the old iid null
+    for name, f in global_tests(0.5).items():
+        assert abs((f(p) > dep[name]).mean() - 0.05) < 0.006, name
+    assert (global_tests(0.5)["sum"](p) > iid["sum"]).mean() > 0.15             # iid Stouffer threshold: ~0.20
+
+
+def test_intraclass_correlation_recovers_rho_with_unequal_groups():
+    sizes = rng.integers(3, 60, 3000)
+    groups = np.repeat(np.arange(len(sizes)), sizes)
+    z = np.sqrt(0.15) * rng.standard_normal(len(sizes))[groups] + np.sqrt(0.85) * rng.standard_normal(len(groups))
+    assert abs(intraclass_correlation(z, groups) - 0.15) < 0.015
+    assert intraclass_correlation(rng.standard_normal(len(groups)), groups) < 0.01

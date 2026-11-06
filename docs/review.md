@@ -407,8 +407,14 @@ preliminary choice, where it lives, and what to check.
     - Preliminary: not handled; p-values within a document are treated as independent.
     - Measured 2026-11-01 (Rui, [pilot-results.md](pilot-results.md)): intraclass correlation of human sentence z
       within test documents is 0.07-0.28 per source for the HC3 RoBERTa detector, and on human-only documents
-      (n >= 16) Stouffer rejects 24%, HC+ 17%, HC 9%, min-p 6% at nominal 5%. Proposed fix there: thresholds under a
-      Sigma estimated from a held-out half of calib.
+      (n >= 16) Stouffer rejects 24%, HC+ 17%, HC 9%, min-p 6% at nominal 5%.
+    - Preliminary fix (2026-11-01, Rui): calib documents are split in two folds and cross-fitted
+      (`calibrate.cross_fit_calib`); `phase.calib_correlation` estimates one within-document correlation rho per
+      source and detector from them; `stats.null_thresholds(..., rho)` gives thresholds for equicorrelated null
+      documents, reported as null type `conformal_dependent` next to `conformal`. Type I error returns to
+      0.04-0.06 for every test (whole mode, both detectors).
+    - Review: equicorrelation is the simplest model (one parameter per source); check it against direct quantiles
+      on calib documents, or use a Toeplitz Sigma. Thresholds grow with n, so long documents lose power.
     - Review: author style shifts all sentences of a document together. The PC adjustment from lecture still has to
       be specified.
 
