@@ -34,14 +34,18 @@ edit:
   max_attempts: 3              # resample when output is empty, unchanged, or splits/merges Punkt sentences
   concurrency: 256
   chunk_size: 5000
-  batch_size: 50000            # --batch: requests per Batch API job
+  batch_size: 50000            # --batch: requests per Batch API job (OpenAI allows 50,000, Anthropic 100,000)
+  batch_mb: 150                # and at most this many MB of requests (OpenAI allows 200, Anthropic 256)
   # Each entry: name, model, product (the name in the system prompt, e.g. ChatGPT or Claude), heldout (bool);
   # optional api_key_env (omit for self-hosted vLLM); optional base_url or base_url_env
   # (an OpenAI-compatible URL, or the env var holding it; omit both for the OpenAI default); optional auth_header
   # (header that carries the key, e.g. "api-key" for the HUIT gateway); optional params (sampling kwargs, each
   # model's recommended settings); optional target_strengths (a requested strength per job; the masked-LM control
-  # uses them); optional train_classifier (default true). Self-hosted editors run on their own pod, served by vLLM
-  # 0.32.0 at localhost:8000. type: mlm is the optional masked-LM control editor, in configs/mlm_control.yaml.
+  # uses them); optional train_classifier (default true); optional api: anthropic (Messages API, --batch only, the
+  # document cached); optional cache_key (per-document prompt_cache_key, OpenAI); optional batch_limits (batch_size,
+  # batch_mb and max_queued, the batches in flight at once, for a vendor's queue limit). Self-hosted editors run on
+  # their own pod, served by vLLM 0.32.0 at localhost:8000. type: mlm is the optional masked-LM control editor, in
+  # configs/mlm_control.yaml.
   editors:
     - name: gpt-oss-120b
       model: openai/gpt-oss-120b   # revision b5c939de8f75
@@ -70,6 +74,38 @@ edit:
       heldout: false
       params: {temperature: 1.0, top_p: 0.95, reasoning_effort: low, max_tokens: 4096,   # its benchmark settings;
                extra_body: {chat_template_kwargs: {clear_thinking: true}}}   # thinking cannot be turned off
+    - name: gpt-6-luna             # sampling parameters are not accepted, so defaults
+      model: gpt-6-luna
+      product: ChatGPT
+      api_key_env: OPENAI_API_KEY
+      cache_key: true
+      heldout: false
+      # reasoning off; flex as for gpt-6-luna-light below (the first 25,035 records came from the Batch API)
+      params: {reasoning_effort: none, max_completion_tokens: 1024, service_tier: flex}
+      price: {input: 0.05, cache_read: 0.005, output: 0.25}   # $/M tokens at batch rates (OpenRouter listing, 2026-11-01)
+      batch_limits: {batch_mb: 25, max_queued: 3}   # OpenAI queues at most 20M prompt tokens for this model (~100 MB)
+      concurrency: 64
+    - name: claude-haiku-5.5       # Anthropic Message Batches; sampling parameters are not accepted, so defaults
+      model: claude-haiku-5-5
+      product: Claude
+      api: anthropic
+      api_key_env: ANTHROPIC_API_KEY
+      heldout: false
+      params: {max_tokens: 1024, thinking: {type: disabled}}   # thinking off (allowed at the default effort, medium)
+      price: {input: 0.05, cache_read: 0.005, cache_write: 0.0625, output: 0.25}   # batch rates, 5-min cache writes
+    # A sample, "edit" wording only, in the splits' shares: edit.py --limit 20000 (decided 2026-11-03 by Ege, $30.42);
+    # rerunning with a larger --limit, or with --splits test, continues it in the same document order.
+    - name: claude-sonnet-5.5      # Anthropic Message Batches; sampling parameters are not accepted, so defaults
+      model: claude-sonnet-5-5
+      product: Claude
+      api: anthropic
+      api_key_env: ANTHROPIC_API_KEY
+      heldout: false
+      # thinking off: "disabled" is a 400 on Sonnet 5.5; between_tools is its lowest setting (no extended thinking),
+      # allowed at the default effort, high
+      params: {max_tokens: 1024, thinking: {type: between_tools}}
+      price: {input: 1.0, cache_read: 0.05, cache_write: 1.25, output: 5.0}   # batch rates, 5-min cache writes
+                                                                             # (Anthropic pricing page, 2026-11-03)
     # Light pass (decided 2026-10-31 by Ege): the same models with the "light" wording (edit.ASK), every split.
     - {name: gpt-oss-120b-light, prompt: light, model: openai/gpt-oss-120b, product: ChatGPT,
        base_url: "http://localhost:8000/v1", heldout: false,
@@ -86,12 +122,70 @@ edit:
        base_url: "http://localhost:8000/v1", heldout: false,
        params: {temperature: 1.0, top_p: 0.95, reasoning_effort: low, max_tokens: 4096,
                 extra_body: {chat_template_kwargs: {clear_thinking: true}}}}
+    # service_tier flex: Batch API prices, but answered per request (run without --batch); the first 1,000 records
+    # (the pilot) came from the Batch API, each later response's tier is in the .usage log. The org's limit for luna
+    # is 2M tokens/min (~2,550 per request, so ~780 requests/min), shared by both passes; concurrency keeps under it.
+    - {name: gpt-6-luna-light, prompt: light, model: gpt-6-luna, product: ChatGPT, api_key_env: OPENAI_API_KEY,
+       cache_key: true, heldout: false, params: {reasoning_effort: none, max_completion_tokens: 1024, service_tier: flex},
+       concurrency: 64,
+       price: {input: 0.05, cache_read: 0.005, output: 0.25}, batch_limits: {batch_mb: 25, max_queued: 3}}
+    - {name: claude-haiku-5.5-light, prompt: light, model: claude-haiku-5-5, product: Claude, api: anthropic,
+       api_key_env: ANTHROPIC_API_KEY, heldout: false, params: {max_tokens: 1024, thinking: {type: disabled}},
+       price: {input: 0.05, cache_read: 0.005, cache_write: 0.0625, output: 0.25}}
+    # The same 20,000-sentence sample as claude-sonnet-5.5 (--limit 17000 on 2026-11-03, extended to --limit 20000
+    # on 2026-11-04; decided by Ege)
+    - {name: claude-sonnet-5.5-light, prompt: light, model: claude-sonnet-5-5, product: Claude, api: anthropic,
+       api_key_env: ANTHROPIC_API_KEY, heldout: false, params: {max_tokens: 1024, thinking: {type: between_tools}},
+       price: {input: 1.0, cache_read: 0.05, cache_write: 1.25, output: 5.0}}
+
+pretrain:                      # week-4 LMs (pretrain.py; docs/review.md items 67-71)
+  tokenizer: EleutherAI/pythia-160m   # Pythia's GPT-NeoX BPE (item 69)
+  vocab_size: 50304            # the tokenizer's 50,277 ids, padded as in Pythia
+  train_splits: [train, val, calib]
+  eval_split: test             # human documents only, held out from every arm (item 67)
+  arms:                        # data recipe and per-sentence weight (item 70)
+    human: {data: human, weight: none}
+    mixture-mask: {data: mixture, weight: mask}
+    mixture-strength: {data: mixture, weight: strength}
+    all-edited-mask: {data: all_edited, weight: mask}
+    all-edited-strength: {data: all_edited, weight: strength}
+    # Controls (decided 2026-11-05 by Ege): the same data unweighted, and human documents with all_edited's passes
+    mixture-unweighted: {data: mixture, weight: none}
+    all-edited-unweighted: {data: all_edited, weight: none}
+    human-repeated: {data: repeat, weight: none}
+    human-fresh: {data: fresh, weight: none}   # fresh.py's new documents (decided 2026-11-05 by Ege)
+    # One pass (decided 2026-11-05 by Ege): AI-edited documents with one editor-wording drawn per document, and the
+    # same train and val documents human, against the 10-pass all-edited arms and human-repeated
+    all-edited-1pass-unweighted: {data: all_edited, weight: none, passes: 1}
+    all-edited-1pass-strength: {data: all_edited, weight: strength, passes: 1}
+    all-edited-1pass-mask: {data: all_edited, weight: mask, passes: 1}
+    human-1pass: {data: repeat, weight: none, passes: 1}
+  fresh_multiple: 9            # fresh words per source = 9 x its train and val words, where the source has them, so
+                               # human-fresh has about all_edited's tokens in distinct documents
+  sizes:                       # item 68; d_ff = 8/3 d_model rounded up to a multiple of 4
+    chinchilla: {d_model: 64, n_layers: 6, n_heads: 4, d_ff: 172}
+    data-starved: {d_model: 128, n_layers: 8, n_heads: 4, d_ff: 344}
+  seeds: [0, 1, 2]
+  # Preliminary (item 71): 1 epoch of 512-token windows, 16 per step, AdamW, cosine decay to 10% after 5% warmup
+  seq_len: 512
+  batch_size: 16
+  lr: 2.0e-3
+  warmup: 0.05
+  min_lr_frac: 0.1
+  weight_decay: 0.1
+  betas: [0.9, 0.95]
+  max_grad_norm: 1.0
+  evals: 10                    # test perplexity this many times per run
+  eval_batch_size: 64
 
 lm_scores:                     # one forward pass of both models gives all three zero-shot scores
-  splits: [calib, test]        # versions scored; train and val are only for the supervised detectors
-  observer: tiiuae/falcon-7b
-  performer: tiiuae/falcon-7b-instruct
-  batch_size: 32
+  pairs:                       # both pairs (decided 2026-11-04 by Ege; review item 28)
+    falcon-7b: {observer: tiiuae/falcon-7b, performer: tiiuae/falcon-7b-instruct}   # the Binoculars paper's pair
+    llama-3-8b: {observer: meta-llama/Meta-Llama-3-8B,                              # Fast-DetectGPT README's best
+                 performer: meta-llama/Meta-Llama-3-8B-Instruct}                    # (its 2026-01-31 update)
+  splits: [calib, val, test]   # val for ensembles with the supervised detectors; train is never needed
+  batch_size: 64
+  chunk: 20000                 # versions per saved part (a preempted run resumes)
   max_tokens: 128
 
 classifier:
@@ -135,3 +229,70 @@ phase:
   sim_docs: 2000
   sim_r: [0.1, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0]
   plot_metrics: [reject_hc, exact_bonferroni]
+
+detector:                      # the detector search (detect.py; docs/review.md item 33). Values from model cards and
+  search_frac: 0.2             # papers (2026-11-01 research note in docs/review.md); train documents in the search
+  val_frac: 1.0                # val documents the document detector is scored on
+  select: tpr@0.01             # kept checkpoint / C, and the search winner: TPR at 1% FPR on the training editors' val
+  fpr: [0.001, 0.01, 0.05]
+  defaults:
+    max_tokens: 256            # sentence runs (DeBERTa card, ModernBERT GLUE)
+    chunk_tokens: 2048         # document runs (decided 2026-11-01)
+    batch_size: 32             # effective batch = batch_size x grad_accum
+    grad_accum: 1
+    eval_batch_size: 256
+    epochs: 2
+    eval_per_epoch: 10         # keep the best of these evaluations
+    scheduler: linear
+    warmup: 0.06
+    weight_decay: 0.01
+    betas: [0.9, 0.999]
+    eps: 1.0e-8
+    max_grad_norm: 1.0
+    log_every: 50
+    ckpt_every: 500
+  runs:
+    # Frozen embedders + class-weighted L2 logistic regression on standardized embeddings, C on val
+    qwen3-emb-0.6b: &qwen3 {kind: embed, model: Qwen/Qwen3-Embedding-0.6B, max_tokens: 512, max_iter: 1000,
+                            Cs: [1.0e-6, 1.0e-4, 1.0e-2, 1.0, 1.0e+2, 1.0e+4, 1.0e+6],
+                            prompt: "Instruct: Classify the given sentence as either human-written or edited by an AI model\nQuery:"}
+    qwen3-emb-4b: {<<: *qwen3, model: Qwen/Qwen3-Embedding-4B}
+    qwen3-emb-8b: {<<: *qwen3, model: Qwen/Qwen3-Embedding-8B}
+    embeddinggemma-2: {<<: *qwen3, model: google/embeddinggemma-2, prompt: null, prompt_name: Classification,
+                       st_kwargs: {config_kwargs: {vision_config: null, audio_config: null}}}   # text-only path
+    llama-embed-nemotron-8b: {<<: *qwen3, model: nvidia/llama-embed-nemotron-8b, st_kwargs: {trust_remote_code: true},
+                              prompt: "Instruct: Classify the given sentence as either human-written or edited by an AI model\nQuery: "}
+    # Encoders, full fine-tune x 3 learning rates x 2 weightings
+    deberta-v3-large: &deberta {kind: sentence, model: microsoft/deberta-v3-large, attn: eager, pooling: cls, eps: 1.0e-6,
+                       lrs: [5.0e-6, 1.0e-5, 2.0e-5], weightings: [global, per_sentence]}
+    modernbert-large: &modernbert {kind: sentence, model: answerdotai/ModernBERT-large, pooling: mean,
+                                   betas: [0.9, 0.98], eps: 1.0e-6, lrs: [1.0e-5, 3.0e-5, 5.0e-5],
+                                   weightings: [global, per_sentence]}
+    ettin-encoder-1b: {<<: *modernbert, model: jhu-clsp/ettin-encoder-1b, lrs: [1.0e-5, 2.0e-5, 4.0e-5]}
+    # Decoders, LoRA (all linear layers) + a fully trained head on the last token x 2 learning rates
+    llama-3.1-8b: &decoder {kind: sentence, model: meta-llama/Llama-3.1-8B, pooling: last, lrs: [5.0e-5, 2.0e-4],
+                            pad_token: "<|finetune_right_pad_id|>",
+                            lora: {r: 16, lora_alpha: 32, lora_dropout: 0.05, target_modules: all-linear}}
+    olmo-3-7b: &olmo {<<: *decoder, model: allenai/Olmo-3-1025-7B, pad_token: null}
+    ettin-decoder-1b: {<<: *decoder, model: jhu-clsp/ettin-decoder-1b, pad_token: null}
+    # Full training (decided 2026-11-03 by Ege): every train document, 3 epochs (the best weights by the end of each
+    # epoch are kept, so analysis can start from epoch 2), learning rates a factor of 2 around each family's search
+    # winner. Decoders on Kempner H200s, DeBERTa on RunPod.
+    full-llama-3.1-8b: {<<: *decoder, train_frac: 1.0, epochs: 3, lrs: [2.5e-5, 5.0e-5, 1.0e-4]}
+    full-olmo-3-7b: {<<: *olmo, train_frac: 1.0, epochs: 3, lrs: [2.5e-5, 5.0e-5, 1.0e-4]}
+    full-deberta-v3-large: {<<: *deberta, train_frac: 1.0, epochs: 3, lrs: [2.5e-6, 5.0e-6, 1.0e-5],
+                            weightings: [per_sentence], ckpt_every: 4000}   # 5 GB checkpoints on a network volume
+    # OLMo-3-32B (same family as OLMo-3-7B; the research note's larger-decoder arm), 1 epoch: about 13 h on an H200
+    # (estimated from OLMo-3-7B's step time x 4.5), the time left before the 2026-11-05 deadline. Gradient
+    # checkpointing: without it the first training steps ran out of the H200's 140 GiB (2026-11-04).
+    full-olmo-3-32b: {<<: *olmo, model: allenai/Olmo-3-1125-32B, train_frac: 1.0, epochs: 1, lrs: [5.0e-5],
+                      grad_ckpt: true}
+    # Whole-document detectors, one setting each
+    doc-modernbert-large: &doc {kind: document, model: answerdotai/ModernBERT-large, pooling: mean, betas: [0.9, 0.98],
+                                eps: 1.0e-6, lrs: [3.0e-5], epochs: 3, eval_per_epoch: 1, warmup: 0.1,
+                                batch_size: 8, eval_batch_size: 16}
+    doc-ettin-encoder-1b: {<<: *doc, model: jhu-clsp/ettin-encoder-1b, lrs: [2.0e-5], batch_size: 4, grad_accum: 2}
+    doc-llama-3.1-8b: {<<: *doc, model: meta-llama/Llama-3.1-8B, echo: true, pooling: last, betas: [0.9, 0.999],
+                       eps: 1.0e-8, lrs: [1.0e-4], batch_size: 1, grad_accum: 8, eval_batch_size: 4, grad_ckpt: true,
+                       pad_token: "<|finetune_right_pad_id|>",
+                       lora: {r: 16, lora_alpha: 32, lora_dropout: 0.05, target_modules: all-linear}}
