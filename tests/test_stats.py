@@ -1,8 +1,9 @@
 import numpy as np
-from scipy.stats import false_discovery_control, kstest, norm
+from scipy.stats import binom, false_discovery_control, kstest, norm
 
-from sparse_edits.stats import (bh, conformal_pvalues, detection_boundary, empirical_null, exact_recovery_boundary,
-                                global_tests, hc, n_edited, null_thresholds, sample_truth)
+from sparse_edits.stats import (bh, conformal_pvalues, detection_boundary, empirical_null, eps_lower, eps_storey,
+                                exact_recovery_boundary, global_tests, hc, intraclass_correlation, n_edited,
+                                null_thresholds, sample_truth, wilson)
 
 rng = np.random.default_rng(0)
 
@@ -63,3 +64,51 @@ def test_hc_detects_strong_sparse_signal():
     truth = sample_truth(2000, n, 2, rng)
     p = norm.sf(rng.standard_normal(truth.shape) + np.sqrt(2 * 2.0 * np.log(n)) * truth)
     assert (hc(p) > null_thresholds(n, 0.05, 0.5, 100000, 0)["hc"]).mean() > 0.8
+
+
+def test_eps_lower_covers_and_is_positive_iff_full_hc_rejects():
+    for n in [16, 32]:
+        c = null_thresholds(n, 0.05, 0.5, 100000, 0)["hc_all"]
+        for m, r in [(0, 0.0), (1, 1.0), (4, 0.5), (4, 2.0), (12, 1.0)]:
+            truth = sample_truth(20000, n, m, rng)
+            p = norm.sf(rng.standard_normal(truth.shape) + np.sqrt(2 * r * np.log(n)) * truth)
+            lower = eps_lower(p, c)
+            cover = (lower <= m / n).mean()
+            assert cover > 0.94 if m else abs(cover - 0.95) < 0.006, (n, m, r, cover)
+            assert np.array_equal(lower > 0, hc(p, 1.0) > c)
+
+
+def test_eps_storey_mean_when_edits_are_strong():
+    truth = sample_truth(20000, 16, 4, rng)
+    p = np.where(truth, 1e-9, rng.random(truth.shape))
+    x = np.arange(13)                                      # #{p > 1/2} among the 12 human sentences ~ Bin(12, 1/2)
+    exact = (binom.pmf(x, 12, 0.5) * np.clip(1 - x / 8, 0, 1)).sum()    # unbiased (1/4) but for the clip at 0
+    assert abs(eps_storey(p, 0.5).mean() - exact) < 0.003 and exact > 4 / 16
+
+
+def test_wilson_known_values():
+    assert np.allclose(wilson(0, 10, 0.95), (0, 0.2775), atol=1e-4)
+    lo, hi = wilson(50, 100, 0.95)
+    assert np.isclose(lo + hi, 1) and np.isclose(hi, 0.5962, atol=1e-4)
+
+
+def equicorrelated_p(docs, n, rho, rng):
+    return norm.sf(np.sqrt(rho) * rng.standard_normal((docs, 1)) + np.sqrt(1 - rho) * rng.standard_normal((docs, n)))
+
+
+def test_dependent_thresholds_restore_level_that_iid_thresholds_lose():
+    n, rho = 16, 0.2
+    p = equicorrelated_p(50000, n, rho, rng)
+    iid, dep = null_thresholds(n, 0.05, 0.5, 100000, 0), null_thresholds(n, 0.05, 0.5, 100000, 0, rho)
+    assert null_thresholds(n, 0.05, 0.5, 100000, 0, 0.0) == iid                 # rho = 0 is the old iid null
+    for name, f in global_tests(0.5).items():
+        assert abs((f(p) > dep[name]).mean() - 0.05) < 0.006, name
+    assert (global_tests(0.5)["sum"](p) > iid["sum"]).mean() > 0.15             # iid Stouffer threshold: ~0.20
+
+
+def test_intraclass_correlation_recovers_rho_with_unequal_groups():
+    sizes = rng.integers(3, 60, 3000)
+    groups = np.repeat(np.arange(len(sizes)), sizes)
+    z = np.sqrt(0.15) * rng.standard_normal(len(sizes))[groups] + np.sqrt(0.85) * rng.standard_normal(len(groups))
+    assert abs(intraclass_correlation(z, groups) - 0.15) < 0.015
+    assert intraclass_correlation(rng.standard_normal(len(groups)), groups) < 0.01

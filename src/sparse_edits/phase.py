@@ -11,8 +11,13 @@
                   document is dropped for a rejected edit.
                   Every random draw is seeded by its cell (cell_rng), never by call order, so all detectors
                   see the same windows and the same edited positions (common random numbers).
+                  phase_docs/<detector>.parquet: the same cells, one row per document (doc_n = its length).
 --what plot       figures/: for window mode, Gaussian power next to empirical cells placed at
                   r_eff = max(mu_eff, 0)^2 / (2 log n), with the theoretical boundaries on both.
+
+Every metric column is a mean over documents with a level-ci_level interval in <metric>_lo, <metric>_hi
+(summarize): Wilson for 0/1 outcomes, normal otherwise. Edited-fraction columns: eps_true (m / n actually
+edited), eps_storey and its squared error, eps_lower (Meinshausen-Rice bound) and cover_eps_lower.
 """
 import zlib
 from itertools import product
@@ -27,7 +32,8 @@ from scipy.stats import norm
 
 from . import cli, path
 from .stats import (almost_full_recovery_boundary, detection_boundary, empirical_null, evaluate,
-                    exact_recovery_boundary, n_edited, null_thresholds, sample_truth)
+                    exact_recovery_boundary, intraclass_correlation, n_edited, null_thresholds, sample_truth,
+                    wilson)
 
 
 def plain(x):
@@ -43,10 +49,25 @@ def cell_rng(cfg, *key):
     return np.random.default_rng([cfg["seed"], zlib.crc32(repr(tuple(map(plain, key))).encode())])
 
 
-def outcomes(p, truth, cfg):
+def outcomes(p, truth, cfg, rho=0.0):
+    """Per-document outcomes with thresholds for iid p-values (rho = 0) or equicorrelated ones (rho > 0)."""
     c = cfg["phase"]
-    thresholds = null_thresholds(p.shape[1], c["alpha"], c["hc_alpha0"], c["null_mc_reps"], cfg["seed"])
-    return evaluate(p, truth, thresholds, c["alpha"], c["hc_alpha0"], c["bh_q"])
+    thresholds = null_thresholds(p.shape[1], c["alpha"], c["hc_alpha0"], c["null_mc_reps"], cfg["seed"], rho)
+    return evaluate(p, truth, thresholds, c["alpha"], c["hc_alpha0"], c["bh_q"], c["storey_lambda"])
+
+
+def summarize(out, level):
+    """Mean of each per-document outcome and a level interval over documents (independent: one window or whole
+    document each): Wilson for booleans, mean +- z sd / sqrt(N) otherwise."""
+    row, z = {}, norm.isf((1 - level) / 2)
+    for k, v in out.items():
+        if v.dtype == bool:
+            lo, hi = wilson(v.sum(), len(v), level)
+        else:
+            half = z * v.std(ddof=1) / np.sqrt(len(v)) if len(v) > 1 else np.nan
+            lo, hi = v.mean() - half, v.mean() + half
+        row |= {k: v.mean(), f"{k}_lo": lo, f"{k}_hi": hi}
+    return row
 
 
 def simulate(cfg, n):
@@ -56,18 +77,19 @@ def simulate(cfg, n):
         truth = sample_truth(c["sim_docs"], n, n_edited(n, theta), rng)
         z = rng.standard_normal(truth.shape) + np.sqrt(2 * r * np.log(n)) * truth
         out = outcomes(norm.sf(z), truth, cfg)
-        rows.append(dict(n=n, theta=theta, r=r, m=int(n_edited(n, theta)), **{k: v.mean() for k, v in out.items()}))
+        rows.append(dict(n=n, theta=theta, r=r, m=int(n_edited(n, theta)), **summarize(out, c["ci_level"])))
     return pd.DataFrame(rows)
 
 
-def test_documents(versions, mode, n, rng):
+def test_documents(versions, mode, n, rng, min_whole=1):
     """(docs, n) sentence_id matrices of test-split documents: one random window of n consecutive sentences
-    per doc with at least n (window), or whole docs grouped by length (whole)."""
+    per doc with at least n (window), or whole docs with at least min_whole sentences, grouped by length (whole)."""
     human = versions[(versions.split == "test") & (versions.editor == "human")].sort_values(["doc_id", "sent_idx"])
     docs = human.groupby("doc_id").sentence_id.apply(np.array)
     if mode == "window":
         windows = [d[s:s + n] for d in docs if len(d) >= n for s in [rng.integers(len(d) - n + 1)]]
         return [np.stack(windows)] if windows else []
+    docs = docs[docs.map(len) >= min_whole]
     return [np.stack(list(g)) for _, g in docs.groupby(docs.map(len))]
 
 
@@ -90,9 +112,13 @@ def place_edits(h, a, m, rng):
     return norm.isf(np.where(truth, a, h)), truth, int((chosen & ~truth).sum())
 
 
-def run_cell(cells, theta, cfg, rng):
+def run_cell(cells, theta, cfg, rng, rho=np.nan):
     """cells: list of (human p, edited p) matrices with equal n; edited p may be NaN where no edit was accepted.
-    Returns one row per null type (none if no docs)."""
+    Returns one row per null type (none if no docs); each row's "docs" holds its per-document outcomes, with the
+    document's length in doc_n and mu_doc, the mean z of its edited sentences on the scale the tests used (NaN if
+    none was edited). Null types: conformal (conformal p-values, iid thresholds), empirical (p-values recentered by
+    an Efron fit, iid thresholds) and, when rho is given, conformal_dependent (conformal p-values, thresholds for
+    within-document correlation rho)."""
     if not sum(len(h) for h, _ in cells):
         return []
     draws, kept_human = [], 0
@@ -102,14 +128,21 @@ def run_cell(cells, theta, cfg, rng):
         kept_human += kept
     fit = empirical_null(np.concatenate([z.ravel() for z, _ in draws]), cfg["phase"]["empirical_null_central"])
     rows = []
-    for null, (delta0, sigma0) in [("conformal", (0.0, 1.0)), ("empirical", fit)]:
+    nulls = [("conformal", (0.0, 1.0), 0.0), ("empirical", fit, 0.0)]
+    nulls += [("conformal_dependent", (0.0, 1.0), rho)] if np.isfinite(rho) else []
+    for null, (delta0, sigma0), r in nulls:
         if np.isnan(sigma0):
             print(f"theta={theta}: empirical null fit failed (non-concave); row skipped")
             continue
-        outs = [outcomes(norm.sf((z - delta0) / sigma0), truth, cfg) for z, truth in draws]
-        rows.append(dict(theta=theta, null=null, delta0=delta0, sigma0=sigma0, n_docs=sum(len(t) for _, t in draws),
+        outs = [outcomes(norm.sf((z - delta0) / sigma0), truth, cfg, r) for z, truth in draws]
+        per_doc = {k: np.concatenate([o[k] for o in outs]) for k in outs[0]}
+        mu_doc = [np.where(t.any(axis=1), ((z - delta0) / sigma0 * t).sum(axis=1) / np.maximum(t.sum(axis=1), 1), np.nan)
+                  for z, t in draws]
+        docs = pd.DataFrame(dict(doc_n=np.concatenate([np.full(len(t), t.shape[1]) for _, t in draws]),
+                                 mu_doc=np.concatenate(mu_doc), **per_doc))
+        rows.append(dict(theta=theta, null=null, delta0=delta0, sigma0=sigma0, rho=r, n_docs=sum(len(t) for _, t in draws),
                          n_kept_human=kept_human, m_mean=np.concatenate([t.sum(axis=1) for _, t in draws]).mean(),
-                         **{k: np.concatenate([o[k] for o in outs]).mean() for k in outs[0]}))
+                         **summarize(per_doc, cfg["phase"]["ci_level"]), docs=docs))
     return rows
 
 
@@ -119,14 +152,35 @@ def rep_key(cfg, df):
             for e, r, s, k in zip(df.editor, df.target_r, df.sentence_id, df.rep)]
 
 
+CELL_KEYS = ["detector", "source", "mode", "n", "editor", "target_r", "theta", "null"]
+
+
 def empirical(cfg, detector, versions):
+    """(one row per cell, one row per document per cell). The second carries CELL_KEYS, doc_n (the document's
+    length; n is the window length, NaN in whole mode) and every per-document outcome, so results can be
+    regrouped (by length band, say) without rerunning."""
     pv = versions.merge(pd.read_parquet(path(cfg, "pvalues", f"{detector}.parquet")), on="version_id")
     test = pv[pv.split == "test"]
-    return pd.concat([empirical_source(cfg, s, versions[versions.source == s], test[test.source == s]).assign(source=s)
+    rho = calib_correlation(cfg, detector, versions)
+    rows = pd.concat([empirical_source(cfg, s, versions[versions.source == s], test[test.source == s],
+                                       rho.get(s, np.nan)).assign(source=s)
                       for s in sorted(versions.source.unique())]).assign(detector=detector)
+    docs = pd.concat([d.assign(**k) for k, d in zip(rows[CELL_KEYS].to_dict("records"), rows.docs)],
+                     ignore_index=True)
+    return rows.drop(columns="docs").reset_index(drop=True), docs[CELL_KEYS + [c for c in docs if c not in CELL_KEYS]]
 
 
-def empirical_source(cfg, source, versions, pv):
+def calib_correlation(cfg, detector, versions):
+    """Within-document correlation of human z per source, from the cross-fitted calib p-values written by
+    calibrate.py ({} if that file is missing, and no conformal_dependent rows are produced)."""
+    f = Path(cfg["data_dir"], "pvalues_calib", f"{detector}.parquet")
+    if not f.exists():
+        return {}
+    cal = versions.merge(pd.read_parquet(f), on="version_id")
+    return {s: intraclass_correlation(norm.isf(g.p), g.doc_id) for s, g in cal.groupby("source")}
+
+
+def empirical_source(cfg, source, versions, pv, rho=np.nan):
     c = cfg["phase"]
     human_p = pv[pv.editor == "human"].set_index("sentence_id").p
     edits = pv[pv.editor != "human"]
@@ -136,12 +190,12 @@ def empirical_source(cfg, source, versions, pv):
     designs += [("whole", np.nan)] if "whole" in c["modes"] else []
     rows = []
     for mode, n in designs:
-        groups = test_documents(versions, mode, n, cell_rng(cfg, "window", source, mode, n))
+        groups = test_documents(versions, mode, n, cell_rng(cfg, "window", source, mode, n), c["whole_min_sentences"])
         if not groups:
             print(f"{source}: no test documents with at least {n} sentences; {mode} n={n} skipped")
             continue
         null_cells = [complete_human(lookup(human_p, ids), lookup(human_p, ids)) for ids in groups]
-        for row in run_cell(null_cells, np.inf, cfg, cell_rng(cfg, "truth", source, mode, n, "none", 0.0, np.inf)):
+        for row in run_cell(null_cells, np.inf, cfg, cell_rng(cfg, "truth", source, mode, n, "none", 0.0, np.inf), rho):
             rows.append(dict(mode=mode, n=n, editor="none", target_r=0.0, **row))
         for (editor, target_r), e in edits.groupby(["editor", "target_r"], dropna=False):   # NaN: no requested strength
             alt_p = e.set_index("sentence_id").p
@@ -149,7 +203,7 @@ def empirical_source(cfg, source, versions, pv):
             mu_eff = np.nanmedian(np.concatenate([norm.isf(a).ravel() for _, a in cells]))
             for theta in c["thetas"]:
                 rng = cell_rng(cfg, "truth", source, mode, n, editor, target_r, theta)
-                for row in run_cell(cells, theta, cfg, rng):
+                for row in run_cell(cells, theta, cfg, rng, rho):
                     rows.append(dict(mode=mode, n=n, editor=editor, target_r=target_r, mu_eff=mu_eff,
                                      mean_actual_r=e.actual_r.mean(), **row))
     return pd.DataFrame(rows)
@@ -211,7 +265,9 @@ def main():
                                    columns=["version_id", "sentence_id", "source", "doc_id", "sent_idx", "split",
                                             "editor", "target_r", "rep", "actual_r"])
         for f in sorted(Path(cfg["data_dir"], "pvalues").glob("*.parquet")):
-            empirical(cfg, f.stem, versions).to_parquet(path(cfg, "phase", f.name), index=False)
+            cells, docs = empirical(cfg, f.stem, versions)
+            cells.to_parquet(path(cfg, "phase", f.name), index=False)
+            docs.to_parquet(path(cfg, "phase_docs", f.name), index=False)
     else:
         plot(cfg)
 
