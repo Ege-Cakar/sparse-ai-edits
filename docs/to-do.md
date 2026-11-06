@@ -17,7 +17,29 @@ setting is final. Open decisions are in
       the "edit" and "light" wordings over every editable train/val/test sentence (192,522 records per pass, one per
       sentence, in data/edits/). Accepted after up to 3 attempts, edit / light: gpt-oss 93.8% / 93.2%,
       Gemma 94.5% / 90.1%, Qwen 92.1% / 88.1%; the rest stay human (too_long, sentence_count_changed, unchanged).
-- [ ] Editing round 2: GLM 5.3 Flash ("edit" and "light"), then the API editors.
+- [ ] Editing round 2: GLM 5.3 Flash ("edit" and "light"), then the API editors. GLM on 4 H200s (2026-10-31, $17,
+      stopped): ~830 edits/min (a pass ~3.9 h, ~$82), prefill-bound. Its hybrid (Mamba) layers make vLLM 0.32 cache
+      prefixes in 1,152-token blocks, so most documents are re-read for every sentence (prefix hit rate 20%);
+      --max-num-batched-tokens 32768 crashes at startup (illegal memory access), 8192 works. Smoke test (1,000 edits):
+      93.5% accepted, no reasoning tokens at reasoning_effort low.
+      GLM done 2026-11-01 on kempner_requeue (slurm/edit_glm.sbatch; 4 H200s per pass, ~1,500-2,000 edits/min,
+      ~2-2.5 h of running each across 6-8 preemptions per job, no records lost). Accepted, edit / light: 94.7% / 90.8%.
+      Claude Haiku 5.5 done 2026-11-01 (Anthropic Message Batches, document cached; $18.32 / $17.65, 70% / 83% of
+      input tokens from cache): 87.8% / 77.1% accepted (light: 15.4% left unchanged after 3 attempts).
+      gpt-6-luna: 1,000-sentence pilot per pass ($0.06 / $0.07, 92.8% / 86.6% accepted; prompt caching gave ~0%
+      hits in the Batch API, even above 1,024 tokens). Done 2026-11-02, pilots included: $20.80 / $21.52,
+      92.3% / 88.6% accepted. The first 25,035 edit / 1,000 light records came from the Batch API, three 25 MB
+      batches in flight (OpenAI queues at most 20M prompt tokens for luna; larger batches fail with
+      token_limit_exceeded, not billed); batches stall on their last requests, so one with no progress for 10 min
+      is cancelled and the rest resent. The rest came from flex processing (Batch prices, answered per request) at
+      the org's 2M tokens/min for luna (requests over it, or without flex capacity, wait and are resent). ~2,100
+      responses (~$0.20) were repeats of sentences whose run was interrupted. Progress stopped while the laptop
+      slept 18:15-21:00.
+      Claude Sonnet 5.5 (2026-11-03, "edit" wording only; thinking between_tools, since disabled is a 400): a sample
+      of 20,000 sentences in the splits' shares (edit.py --limit 20000: 12,456 train, 1,279 val, 6,265 test; 970
+      documents), $30.42 with the 500-sentence pilot, 91.9% accepted (Haiku on the same sentences: 88.0%). For the
+      Sonnet-Haiku comparison and detector transfer; a larger --limit, or --splits test, continues it in the same order.
+      Full coverage would cost ~$290 per wording at the measured $0.0015 per sentence.
 - [x] Editing client for OpenAI-compatible endpoints, resumable, with rejection and resampling, as concurrent requests
       or through the Batch API (`edit.py --batch`; checked against the HUIT gateway).
 - [x] Diff labels: word-level edit count, measured strength, per-word AI mask, and `versions.parquet`
@@ -46,7 +68,8 @@ Weeks 1-3: detection
       measures at a fifth of the cost; luna differs. See [style-comparison.md](style-comparison.md).
 - [x] Same study with Claude Opus / Sonnet / Haiku 5.5 as subagents: neither smaller Claude model edits like Opus.
 - [ ] Detector-transfer test between editors (needs the RunPod detectors).
-- [ ] Batch tails can stall (the trial's batch sat at 7,869 / 8,167 for an hour); `--batch` waits indefinitely.
+- [x] Batch tails can stall (the trial's batch sat at 7,869 / 8,167 for an hour); `--batch` now cancels a started
+      batch with no progress for 10 min, keeps its completed results and resends the rest.
 - [ ] Downstream steps with the real detectors on RunPod (the multi-source plumbing ran once with tiny stand-in models).
 - [ ] Check the third-party mirrors, PERSUADE/ELLIPSE overlap, and release license terms (review.md items 3-5).
 - [ ] RunPod setup: environment, storage for `data_dir`, how each step is launched.

@@ -7,3 +7,7 @@ data/*
 !data/edits/
 *.egg-info/
 .env
+data/edits/*.batches
+data/edits/*.usage
+.hf_token
+.gh_access_token
