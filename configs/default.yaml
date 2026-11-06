@@ -208,15 +208,26 @@ classifier:
     model: sentence-transformers/all-mpnet-base-v2
     batch_size: 256
 
+pretrained:                    # off-the-shelf AI-text classifiers, used as released (score_pretrained.py)
+  splits: [calib, test]
+  batch_size: 64
+  max_tokens: 128
+  detectors:                   # ai_label: the model's label for AI text; score = logit(ai) - logit(other)
+    - {name: openai_roberta, model: openai-community/roberta-base-openai-detector, ai_label: Fake}       # GPT-2 output, 2019
+    - {name: chatgpt_roberta, model: Hello-SimpleAI/chatgpt-detector-roberta, ai_label: ChatGPT}         # HC3, 2023
+
 calibrate:
   length_bins: 10              # null quantile bins on n_words of the tested sentence
 
 phase:
   modes: [window, whole]
   window_n: [16, 32]
+  whole_min_sentences: 16      # whole mode skips shorter test documents (review.md item 46)
   thetas: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]   # m = round(n^(1 - theta)) edited sentences
   alpha: 0.05                  # level for global tests and Bonferroni recovery
   bh_q: 0.1
+  storey_lambda: 0.5           # Storey estimate of the edited fraction: 1 - #{p > lambda} / ((1 - lambda) n)
+  ci_level: 0.95               # intervals on every per-cell mean (Wilson for rates, normal for means)
   hc_alpha0: 0.5
   null_mc_reps: 100000         # iid-uniform Monte Carlo for test thresholds at each n
   empirical_null_central: 0.5  # central fraction of z used for Efron central matching
