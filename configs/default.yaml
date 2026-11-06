@@ -216,6 +216,14 @@ pretrained:                    # off-the-shelf AI-text classifiers, used as rele
     - {name: openai_roberta, model: openai-community/roberta-base-openai-detector, ai_label: Fake}       # GPT-2 output, 2019
     - {name: chatgpt_roberta, model: Hello-SimpleAI/chatgpt-detector-roberta, ai_label: ChatGPT}         # HC3, 2023
 
+external:                      # released detectors with their own heads (external.py; decided 2026-11-06 by Ege)
+  splits: [calib, val, test]
+  detectors:
+    - {name: editlens, kind: editlens, model: pangram/editlens_Llama-3.2-3B, base: meta-llama/Llama-3.2-3B,
+       max_tokens: 1024, batch_size: 256, doc_batch_size: 16}   # Thai et al., ICLR 2026; CC BY-NC-SA 4.0, gated
+    - {name: desklib, kind: desklib, model: desklib/ai-text-detector-v1.01, max_tokens: 768, batch_size: 256,
+       doc_batch_size: 32}                                      # DeBERTa-v3-large, trained on RAID; MIT
+
 calibrate:
   length_bins: 10              # null quantile bins on n_words of the tested sentence
 
