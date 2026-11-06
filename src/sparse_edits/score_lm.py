@@ -1,16 +1,16 @@
 """Zero-shot sentence scores from one forward pass of an observer and a performer LM.
 
-Each sentence is scored in isolation (no document context). Only versions in `lm_scores.splits` are scored (zero-shot
-scores need no training data; calibrate.py and phase.py use calib and test). Writes scores/<name>.parquet
-(version_id, score):
+Each sentence is scored in isolation (no document context), for the versions in lm_scores.splits. --pair NAME picks
+an observer/performer pair from lm_scores.pairs and writes scores/<score>_<NAME>.parquet (version_id, score):
   log_likelihood  mean token log-prob under the observer (higher = more AI-like)
   fast_detectgpt  analytic sampling discrepancy, sampling model = observer, scoring model = performer
                   (Bao et al. 2024, get_sampling_discrepancy_analytic; higher = more AI-like)
   binoculars      performer log-PPL / observer-to-performer cross-entropy (Hans et al. 2024; lower = more AI-like).
                   Both terms average over the same predicted positions (the paper's definition); the reference
                   code averages the cross-entropy over one extra position.
+Length-sorted chunks of lm_scores.chunk versions are saved to lm_score_parts/<NAME>/ as they finish, so a preempted
+run resumes at the first missing chunk.
 """
-import numpy as np
 import pandas as pd
 import torch
 from tqdm import tqdm
@@ -35,26 +35,38 @@ def score_batch(texts, tok, observer, performer, max_tokens):
 
 
 def main():
-    cfg, _ = cli(__doc__)
+    cfg, args = cli(__doc__, lambda p: p.add_argument("--pair", required=True, help="a key of lm_scores.pairs"))
     c = cfg["lm_scores"]
-    device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
-    dtype = torch.float32 if device == "cpu" else torch.bfloat16
-    tok = AutoTokenizer.from_pretrained(c["observer"])
+    pair, bs = c["pairs"][args.pair], c["batch_size"]
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    dtype = torch.bfloat16 if device == "cuda" else torch.float32
+    tok = AutoTokenizer.from_pretrained(pair["observer"])
     tok.pad_token, tok.padding_side = tok.pad_token or tok.eos_token, "right"
     observer, performer = (AutoModelForCausalLM.from_pretrained(m, dtype=dtype).to(device).eval()
-                           for m in (c["observer"], c["performer"]))
+                           for m in (pair["observer"], pair["performer"]))
 
     versions = pd.read_parquet(path(cfg, "versions.parquet"), columns=["version_id", "split", "text"])
     versions = versions[versions.split.isin(c["splits"])].reset_index(drop=True)
     order = versions.text.str.len().argsort().to_numpy()            # length-sorted batches waste less padding
-    texts, bs = versions.text.to_numpy()[order], c["batch_size"]
-    batches = [score_batch(list(texts[i:i + bs]), tok, observer, performer, c["max_tokens"])
-               for i in tqdm(range(0, len(texts), bs))]
-    for name in batches[0]:
-        scores = np.empty(len(texts))
-        scores[order] = torch.cat([b[name] for b in batches]).cpu().numpy()
-        pd.DataFrame({"version_id": versions.version_id, "score": scores}).to_parquet(
-            path(cfg, "scores", f"{name}.parquet"), index=False)
+    parts = path(cfg, "lm_score_parts", args.pair, "x").parent
+    for k, start in enumerate(tqdm(range(0, len(order), c["chunk"]))):
+        f = parts / f"{k:04d}.parquet"
+        if f.exists():
+            continue
+        idx = order[start:start + c["chunk"]]
+        texts = versions.text.to_numpy()[idx]
+        batches = [score_batch(list(texts[i:i + bs]), tok, observer, performer, c["max_tokens"])
+                   for i in range(0, len(idx), bs)]
+        pd.DataFrame({"version_id": versions.version_id.to_numpy()[idx]}
+                     | {n: torch.cat([b[n] for b in batches]).cpu().numpy() for n in batches[0]}).to_parquet(
+            f.with_suffix(".tmp"), index=False)
+        f.with_suffix(".tmp").replace(f)
+    scores = pd.concat([pd.read_parquet(f) for f in sorted(parts.glob("*.parquet"))])
+    assert len(scores) == len(versions) and scores.version_id.is_unique
+    for name in ["log_likelihood", "fast_detectgpt", "binoculars"]:
+        scores[["version_id", name]].rename(columns={name: "score"}).to_parquet(
+            path(cfg, "scores", f"{name}_{args.pair}.parquet"), index=False)
+    print(f"{args.pair}: scored {len(scores)} versions of {c['splits']}")
 
 
 if __name__ == "__main__":
