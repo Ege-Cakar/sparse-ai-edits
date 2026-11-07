@@ -1,0 +1,11 @@
+run,backbone,lr,epochs,auroc,tpr_0.001,tpr_0.01,tpr_0.05,best_step,source
+full-llama-3.1-8b_lr2.5e-05,meta-llama/Llama-3.1-8B (LoRA),2.5e-05,3,0.9168,0.1745,0.3505,0.5717,45071,Kempner data/detector/<run>/metrics.json
+full-llama-3.1-8b_lr5e-05,meta-llama/Llama-3.1-8B (LoRA),5e-05,3,0.9148,0.1913,0.3495,0.5677,48827,Kempner data/detector/<run>/metrics.json
+full-llama-3.1-8b_lr0.0001,meta-llama/Llama-3.1-8B (LoRA),1e-04,3,0.9087,0.1543,0.3259,0.5512,75118,Kempner data/detector/<run>/metrics.json
+full-olmo-3-7b_lr2.5e-05,allenai/Olmo-3-1025-7B (LoRA),2.5e-05,3,0.9115,0.1806,0.3485,0.5673,60094,Kempner data/detector/<run>/metrics.json
+full-olmo-3-7b_lr5e-05,allenai/Olmo-3-1025-7B (LoRA),5e-05,3,0.9125,0.1795,0.3485,0.5642,75118,Kempner data/detector/<run>/metrics.json
+full-olmo-3-7b_lr0.0001,allenai/Olmo-3-1025-7B (LoRA),1e-04,3,0.9099,0.1751,0.3455,0.5506,75118,Kempner data/detector/<run>/metrics.json
+full-olmo-3-32b_lr5e-05,allenai/Olmo-3-1125-32B (LoRA),5e-05,1,0.9230,0.1782,0.3741,0.6089,37559,Kempner data/detector/<run>/metrics.json
+full-deberta-v3-large_lr5e-06,microsoft/deberta-v3-large,5e-06,3,0.9156,0.1690,0.3419,0.5700,82630,Kempner data/detector/<run>/metrics.json
+full-deberta-v3-large_lr2.5e-06,microsoft/deberta-v3-large,2.5e-06,3,0.916,0.175,0.337,0.568,,RunPod run log (epoch 3; 3 decimals)
+full-deberta-v3-large_lr1e-05,microsoft/deberta-v3-large,1e-05,3,0.913,0.165,0.334,0.558,,RunPod run log (epoch 2; 3 decimals)
