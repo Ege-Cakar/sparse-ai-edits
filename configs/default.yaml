@@ -220,9 +220,14 @@ external:                      # released detectors with their own heads (extern
   splits: [calib, val, test]
   detectors:
     - {name: editlens, kind: editlens, model: pangram/editlens_Llama-3.2-3B, base: meta-llama/Llama-3.2-3B,
-       max_tokens: 1024, batch_size: 256, doc_batch_size: 16}   # Thai et al., ICLR 2026; CC BY-NC-SA 4.0, gated
+       max_tokens: 1024, batch_size: 256, doc_batch_size: 16}   # Thai et al., ICLR 2026; CC BY-NC-SA 4.0, gated;
+                                                                 # 4-bit NF4 base as configs/llama.yaml (2026-11-07)
     - {name: desklib, kind: desklib, model: desklib/ai-text-detector-v1.01, max_tokens: 768, batch_size: 256,
        doc_batch_size: 32}                                      # DeBERTa-v3-large, trained on RAID; MIT
+    - {name: gpttrace-v8s-1b, kind: gpttrace, model: nakas/gpttrace-v8s-1b, max_tokens: 512, batch_size: 256,
+       doc_batch_size: 32}                                      # Ettin-encoder-1B; CC BY-SA 4.0
+    - {name: gpttrace-ettin150-v5e, kind: gpttrace_onnx, model: nakas/gpttrace-ettin150-text-v5e, max_tokens: 512,
+       batch_size: 64, doc_batch_size: 8}                       # int8 ONNX, CPU; CC BY-SA 4.0
 
 calibrate:
   length_bins: 10              # null quantile bins on n_words of the tested sentence

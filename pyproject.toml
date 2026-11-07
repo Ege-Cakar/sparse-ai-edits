@@ -29,6 +29,9 @@ dependencies = [
     "sentencepiece>=0.2.2",
     "protobuf>=7.36.2",
     "torchvision>=0.29.2",
+    "bitsandbytes>=0.50.2",
+    "emoji>=2.16.0",
+    "onnxruntime>=1.31.1",
 ]
 
 [dependency-groups]

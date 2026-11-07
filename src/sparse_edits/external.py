@@ -10,15 +10,22 @@
 Scores are saved in chunks to external_parts/, so a preempted run resumes.
 --doc-tests  docscores/<name>_tests.parquet: each test document's conformal p-value against the calib documents of its
              source, and rejection at phase.alpha. CPU only.
-Detectors:
-- editlens: Pangram's EditLens adapter (LoRA on Llama-3.2-3B, sequence classification over buckets, head LayerNorm then
-  linear as its NormedLinear). Score = expected bucket / (buckets - 1), on text lowercased with whitespace collapsed
-  (its clean_text without the emoji and boilerplate steps). The base runs in bf16; EditLens trained it in 4-bit.
-- desklib: DeBERTa-v3-large, mean pooling, one logit (the score).
-Higher scores are more AI-like for both.
+Detectors (kind), each run as its authors run it:
+- editlens: Pangram's EditLens adapter on Llama-3.2-3B, as scripts/inference.py and configs/llama.yaml of
+  github.com/pangramlabs/EditLens: the base in 4-bit NF4 with bf16 compute, the bucket head (LayerNorm then linear,
+  their NormedLinear, fp32) under bf16 autocast, their clean_text, at most 1024 tokens. Score = expected bucket /
+  (buckets - 1).
+- desklib: DeBERTa-v3-large, mean pooling, one logit (the score), at most 768 tokens.
+- gpttrace: GPTTrace v8s (Ettin-encoder-1B sequence classification, the repo's model/ folder) on gpttrace_normalize
+  text, at most 512 tokens; score = logit(machine) - logit(human), as its model card.
+- gpttrace_onnx: GPTTrace Ettin-150M v5e, the int8 ONNX model under onnxruntime (CPU), on gpttrace_normalize text,
+  ids beyond 512 cut to the first 511 and the last; score = logit(ai) - logit(human).
+Higher scores are more AI-like for all.
 """
 import glob
+import os
 import re
+import unicodedata
 
 import numpy as np
 import pandas as pd
@@ -45,26 +52,48 @@ class NormedLinear(torch.nn.Module):
         return self.linear(self.norm(x))
 
 
+BOILERPLATE_STARTS = ("Sure", "Here", "Abstract", "Title", "I'm happy to help", "Certainly")
+
+
+def editlens_clean(text):
+    """EditLens's clean_text (scripts/preprocess.py): emoji to names, drop a reasoning block before </think>, drop a
+    first line that opens with assistant boilerplate, lowercase, collapse whitespace."""
+    import emoji
+    text = emoji.demojize(text)
+    if "</think>" in text:
+        text = text.split("</think>", 1)[1].strip()
+    paras = [p for p in text.split("\n") if p.strip()]
+    if paras:
+        first = emoji.replace_emoji(re.sub(r"^[^a-zA-Z0-9]*", "", paras[0]), "")
+        if first.startswith(BOILERPLATE_STARTS) and len(paras) > 1:
+            text = "\n".join(paras[1:])
+    return re.sub(r"\s+", " ", text.lower()).strip()
+
+
 def editlens(d):
     from huggingface_hub import snapshot_download
     from peft import PeftModel
+    from transformers import BitsAndBytesConfig
     adapter = snapshot_download(d["model"])
     with safe_open(glob.glob(f"{adapter}/adapter_model.safetensors")[0], framework="np") as f:
         k = next(f.get_slice(n).get_shape()[0] for n in f.keys() if n.endswith("score.linear.weight"))
     tok = AutoTokenizer.from_pretrained(adapter)
     if tok.pad_token is None:
         tok.pad_token, tok.padding_side = tok.eos_token, "left"
-    base = AutoModelForSequenceClassification.from_pretrained(d["base"], num_labels=k, dtype=torch.bfloat16)
-    base.score = NormedLinear(base.config.hidden_size, k).to(torch.bfloat16)
+    quant = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_compute_dtype=torch.bfloat16)
+    base = AutoModelForSequenceClassification.from_pretrained(d["base"], num_labels=k, quantization_config=quant,
+                                                              device_map={"": 0})
+    base.score = NormedLinear(base.config.hidden_size, k).cuda()
     base.config.pad_token_id = tok.pad_token_id
-    model = PeftModel.from_pretrained(base, adapter).cuda().eval()
+    model = PeftModel.from_pretrained(base, adapter).eval()
     buckets = torch.arange(k, device="cuda", dtype=torch.float32) / (k - 1)
-    clean = lambda t: re.sub(r"\s+", " ", t.lower()).strip()
 
     def score(texts):
-        enc = tok([clean(t) for t in texts], return_tensors="pt", padding=True, truncation=True,
+        enc = tok([editlens_clean(t) for t in texts], return_tensors="pt", padding=True, truncation=True,
                   max_length=d["max_tokens"]).to("cuda")
-        return model(**enc).logits.float().softmax(-1) @ buckets
+        with torch.autocast("cuda", torch.bfloat16):
+            logits = model(**enc).logits
+        return logits.float().softmax(-1) @ buckets
     return score
 
 
@@ -89,7 +118,62 @@ def desklib(d):
     return score
 
 
-LOADERS = {"editlens": editlens, "desklib": desklib}
+HOMOGLYPHS = dict(zip("аеорсухіјѕһԁԛԝӏ" "АВЕКМНОРСТХІЈЅҮԀԚԜ" "ΑΒΕΖΗΙΚΜΝΟΡΤΥΧ" "ονικρτυχα",   # Cyrillic, Greek
+                      "aeopcyxijshdqwl" "ABEKMHOPCTXIJSYDQW" "ABEZHIKMNOPTYX" "ovikptuxa"))
+GREEK_CYRILLIC = re.compile("[\u0370-\u03ff\u0400-\u052f]")
+LATIN, LETTERS = re.compile("[A-Za-z]"), re.compile(r"[^\W\d_]+")   # LETTERS: runs of letters
+
+
+def gpttrace_normalize(text):
+    """GPTTrace's normalize_text (normalize.py in its model repos, typography folding off as there by default): drop
+    format characters and variation selectors; in mostly-Latin text, map Cyrillic and Greek lookalike letters to Latin
+    in every word that has no other Cyrillic or Greek letter."""
+    t = "".join(c for c in str(text) if unicodedata.category(c) != "Cf" and not "\ufe00" <= c <= "\ufe0f")
+    look = sum(c in HOMOGLYPHS for c in t)
+    if not look or len(LATIN.findall(t)) <= len(GREEK_CYRILLIC.findall(t)) - look:
+        return t
+    swap = lambda w: "".join(HOMOGLYPHS.get(c, c) for c in w)
+    return LETTERS.sub(lambda m: m.group(0) if GREEK_CYRILLIC.search(swap(m.group(0))) else swap(m.group(0)), t)
+
+
+def gpttrace(d):
+    from huggingface_hub import snapshot_download
+    p = os.path.join(snapshot_download(d["model"]), "model")
+    tok = AutoTokenizer.from_pretrained(p)
+    model = AutoModelForSequenceClassification.from_pretrained(p).cuda().eval()
+
+    def score(texts):
+        enc = tok([gpttrace_normalize(t) for t in texts], return_tensors="pt", padding=True, truncation=True,
+                  max_length=d["max_tokens"]).to("cuda")
+        logits = model(**enc).logits.float()
+        return logits[:, 1] - logits[:, 0]
+    return score
+
+
+def gpttrace_onnx(d):
+    import onnxruntime as ort
+    from huggingface_hub import snapshot_download
+    from tokenizers import Tokenizer
+    p = snapshot_download(d["model"])
+    tok = Tokenizer.from_file(f"{p}/tokenizer.json")
+    opts = ort.SessionOptions()
+    opts.intra_op_num_threads = int(os.environ.get("SLURM_CPUS_PER_TASK", os.cpu_count()))
+    sess = ort.InferenceSession(f"{p}/onnx/model_quantized.onnx", opts, providers=["CPUExecutionProvider"])
+    pad = tok.token_to_id("[PAD]") or 0
+
+    def score(texts):
+        ids = [e.ids for e in tok.encode_batch([gpttrace_normalize(t) for t in texts])]
+        ids = [x if len(x) <= d["max_tokens"] else x[:d["max_tokens"] - 1] + x[-1:] for x in ids]
+        width = max(map(len, ids))
+        x = np.array([i + [pad] * (width - len(i)) for i in ids], np.int64)
+        mask = np.array([[1] * len(i) + [0] * (width - len(i)) for i in ids], np.int64)
+        feeds = {i.name: mask if "mask" in i.name else x for i in sess.get_inputs()}
+        out = sess.run(None, feeds)[0]
+        return torch.from_numpy(out[:, 1] - out[:, 0])
+    return score
+
+
+LOADERS = {"editlens": editlens, "desklib": desklib, "gpttrace": gpttrace, "gpttrace_onnx": gpttrace_onnx}
 
 
 @torch.no_grad()

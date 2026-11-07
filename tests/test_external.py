@@ -25,3 +25,17 @@ def test_score_all_resumes_from_saved_chunks(tmp_path):
     n = len(calls)
     again = score_all(score, texts, 2, tmp_path, chunk=2)
     assert first.tolist() == [3, 1, 2, 4, 1] and again.tolist() == first.tolist() and len(calls) == n
+
+
+def test_gpttrace_normalize_drops_invisibles_and_maps_lookalikes_only_in_latin_text():
+    from sparse_edits.external import gpttrace_normalize
+    assert gpttrace_normalize("p​aypаl") == "paypal"            # zero-width space dropped, Cyrillic a mapped
+    assert gpttrace_normalize("привет мир") == "привет мир"          # Cyrillic text is left alone
+    assert gpttrace_normalize("café “quoted”") == "café “quoted”"   # typography folding is off by default
+
+
+def test_editlens_clean_matches_its_preprocess():
+    from sparse_edits.external import editlens_clean
+    assert editlens_clean("Sure! Here is the essay:\nThe  Cat\tsat.") == "the cat sat."
+    assert editlens_clean("<think>plan</think> Done 👍") == "done :thumbs_up:"
+    assert editlens_clean("Sure thing") == "sure thing"   # a lone boilerplate line is kept
