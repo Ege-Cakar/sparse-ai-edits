@@ -138,7 +138,7 @@ def gpttrace_normalize(text):
 
 def gpttrace(d):
     from huggingface_hub import snapshot_download
-    p = os.path.join(snapshot_download(d["model"]), "model")
+    p = os.path.join(snapshot_download(d["model"], allow_patterns=["model/*"]), "model")   # not its ONNX copies
     tok = AutoTokenizer.from_pretrained(p)
     model = AutoModelForSequenceClassification.from_pretrained(p).cuda().eval()
 
