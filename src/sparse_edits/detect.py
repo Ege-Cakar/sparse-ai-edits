@@ -1,4 +1,4 @@
-"""Supervised detectors of AI-edited sentences: the model search of docs/review.md item 33.
+"""Supervised detectors of AI-edited sentences: the model search.
 
 Run kinds (detector.runs in the config; an entry expands over its lrs x weightings into run ids, listed by --list):
 - embed: a frozen sentence-embedding model and a class-weighted logistic regression on its embeddings.

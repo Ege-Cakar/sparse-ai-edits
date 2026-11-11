@@ -1,4 +1,4 @@
-"""Small Llama-style LMs pretrained on the corpus's documents with per-token loss weights (docs/review.md items 67-71).
+"""Small Llama-style LMs pretrained on the corpus's documents with per-token loss weights.
 
 Arms (pretrain.arms) pair a data recipe with a weight:
 - data human: the human documents of pretrain.train_splits.

@@ -1,5 +1,4 @@
-# Preliminary values, chosen only to check that the pipeline runs end to end.
-# Every experimental choice here is TBD; see docs/review.md.
+# Every setting of the pipeline, one section per step (src/sparse_edits/<step>.py).
 data_dir: data
 seed: 0
 
@@ -149,12 +148,12 @@ generate:                      # fully AI-generated documents, the null of the s
   max_attempts: 3              # resample an empty or cut-off reply
   concurrency: 256
 
-pretrain:                      # week-4 LMs (pretrain.py; docs/review.md items 67-71)
-  tokenizer: EleutherAI/pythia-160m   # Pythia's GPT-NeoX BPE (item 69)
+pretrain:                      # small LMs trained from scratch (pretrain.py)
+  tokenizer: EleutherAI/pythia-160m   # Pythia's GPT-NeoX BPE
   vocab_size: 50304            # the tokenizer's 50,277 ids, padded as in Pythia
   train_splits: [train, val, calib]
-  eval_split: test             # human documents only, held out from every arm (item 67)
-  arms:                        # data recipe and per-sentence weight (item 70)
+  eval_split: test             # human documents only, held out from every arm
+  arms:                        # data recipe and per-sentence weight
     human: {data: human, weight: none}
     mixture-mask: {data: mixture, weight: mask}
     mixture-strength: {data: mixture, weight: strength}
@@ -173,11 +172,11 @@ pretrain:                      # week-4 LMs (pretrain.py; docs/review.md items 6
     human-1pass: {data: repeat, weight: none, passes: 1}
   fresh_multiple: 9            # fresh words per source = 9 x its train and val words, where the source has them, so
                                # human-fresh has about all_edited's tokens in distinct documents
-  sizes:                       # item 68; d_ff = 8/3 d_model rounded up to a multiple of 4
+  sizes:                       # d_ff = 8/3 d_model rounded up to a multiple of 4
     chinchilla: {d_model: 64, n_layers: 6, n_heads: 4, d_ff: 172}
     data-starved: {d_model: 128, n_layers: 8, n_heads: 4, d_ff: 344}
   seeds: [0, 1, 2]
-  # Preliminary (item 71): 1 epoch of 512-token windows, 16 per step, AdamW, cosine decay to 10% after 5% warmup
+  # 1 epoch of 512-token windows, 16 per step, AdamW, cosine decay to 10% after 5% warmup
   seq_len: 512
   batch_size: 16
   lr: 2.0e-3
@@ -189,13 +188,13 @@ pretrain:                      # week-4 LMs (pretrain.py; docs/review.md items 6
   evals: 10                    # test perplexity this many times per run
   eval_batch_size: 64
 
-delta:                         # paired Δ test of the LMs (delta.py; docs/review.md item 72)
+delta:                         # paired Δ test of the LMs (delta.py)
   n_pairs: 30000               # test edit versions, each with its human original
   seed: 0
   batch_size: 256
 
 continued:                     # continued pretraining of released LMs with LoRA on pretrain.arms (continued_pretrain.py;
-                               # docs/review.md item 73, decided 2026-11-06 by Ege)
+                               # decided 2026-11-06 by Ege)
   bases:                       # revisions pinned 2026-11-06; native_len: the context length the model was trained at
     pythia-410m: {model: EleutherAI/pythia-410m, revision: 9879c9b5f8bea9051dcb0e68dff21493d67e9d4f, native_len: 2048}
     pythia-1b: {model: EleutherAI/pythia-1b, revision: f73d7dcc545c8bd326d8559c8ef84ffe92fea6b2, native_len: 2048}
@@ -256,7 +255,7 @@ continued:                     # continued pretraining of released LMs with LoRA
                                                                                  # editor, left out
 
 lm_scores:                    # one forward pass of both models gives all three zero-shot scores
-  pairs:                       # both pairs (decided 2026-11-04 by Ege; review item 28)
+  pairs:                       # both pairs (decided 2026-11-04 by Ege)
     falcon-7b: {observer: tiiuae/falcon-7b, performer: tiiuae/falcon-7b-instruct}   # the Binoculars paper's pair
     llama-3-8b: {observer: meta-llama/Meta-Llama-3-8B,                              # Fast-DetectGPT README's best
                  performer: meta-llama/Meta-Llama-3-8B-Instruct}                    # (its 2026-01-31 update)
@@ -336,7 +335,7 @@ calibrate:
 phase:
   modes: [window, whole]
   window_n: [16, 32]
-  whole_min_sentences: 16      # whole mode skips shorter test documents (review.md item 46)
+  whole_min_sentences: 16      # whole mode skips shorter test documents
   thetas: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]   # m = round(n^(1 - theta)) edited sentences
   alpha: 0.05                  # level for global tests and Bonferroni recovery
   bh_q: 0.1
@@ -355,8 +354,8 @@ stage2:                        # H0' (every sentence AI) on documents (stage2.py
   min_sentences: 16            # whole test documents with at least this many sentences, as phase.whole_min_sentences
   eps0: [0.9]                  # composite nulls "at least eps0 of the sentences AI" (Meinshausen-Rice bound)
 
-detector:                      # the detector search (detect.py; docs/review.md item 33). Values from model cards and
-  search_frac: 0.2             # papers (2026-11-01 research note in docs/review.md); train documents in the search
+detector:                      # the detector search (detect.py). Values from model cards and
+  search_frac: 0.2             # papers; train documents in the search
   val_frac: 1.0                # val documents the document detector is scored on
   select: tpr@0.01             # kept checkpoint / C, and the search winner: TPR at 1% FPR on the training editors' val
   fpr: [0.001, 0.01, 0.05]

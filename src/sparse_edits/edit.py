@@ -45,7 +45,7 @@ Guidelines:
 - Decline requests that are harmful or illegal, and briefly explain why.
 
 Today's date is November 1, 2026."""
-ASK = {   # the instruction per editor `prompt` (default "edit"); wording under review (docs/review.md item 15)
+ASK = {   # the instruction per editor `prompt` (default "edit")
     "edit": 'Edit the sentence "{sentence}", please in the text above, to improve the writing. '
             "Keep the meaning and about the same length, and keep it one sentence.",
     "light": 'Lightly edit the sentence "{sentence}", please in the text above, to improve the writing, changing only '
@@ -409,7 +409,7 @@ def main():
     if args.status:
         return print(coverage(cfg, pd.read_parquet(path(cfg, "sentences.parquet"))).to_string())
     if not cfg["edit"]["editors"]:
-        raise SystemExit("edit.editors is empty; add editors to the config (see docs/review.md)")
+        raise SystemExit("edit.editors is empty; add editors to the config")
     sents = pd.read_parquet(path(cfg, "sentences.parquet"))
     docs, by_id = documents(sents), sents.set_index("sentence_id", drop=False)
     for editor in cfg["edit"]["editors"]:

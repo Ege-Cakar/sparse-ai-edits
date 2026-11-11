@@ -1,4 +1,4 @@
-"""Fresh human documents for the pretraining fresh-data control (docs/review.md item 70).
+"""Fresh human documents for the pretraining fresh-data control.
 
 For each source in corpus.sources: the documents that follow the corpus's in the same seeded stream (documents whose
 key is in sentences.parquet are skipped before segmentation), through corpus.py's repairs, segmenter, length filter

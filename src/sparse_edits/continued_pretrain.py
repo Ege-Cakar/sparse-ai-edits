@@ -1,4 +1,4 @@
-"""Continued pretraining of released LMs on the corpus with LoRA and per-token loss weights (docs/review.md item 73).
+"""Continued pretraining of released LMs on the corpus with LoRA and per-token loss weights.
 
 Each base in continued.bases (a pinned revision, with its own tokenizer) trains a LoRA adapter on every arm of
 pretrain.arms and continued.arms with pretrain.py's documents, weights, loss and data draws (pretrain.windows), 1 epoch,

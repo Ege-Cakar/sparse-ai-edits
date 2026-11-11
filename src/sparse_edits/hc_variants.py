@@ -67,7 +67,7 @@ def precision(Sigma):
 def precision_sparse(X0, **kwargs):
     """Sparse precision estimate (graphical lasso, CLIME, ...): 'another chapter' in the lecture.
     TODO: needed only if the number of calib windows is not >> p; choose method and tuning."""
-    raise NotImplementedError("sparse precision estimation not chosen yet; see docs/review.md item 58")
+    raise NotImplementedError("sparse precision estimation is not implemented")
 
 
 def calib_window_z(cfg, detector, n):
@@ -77,7 +77,7 @@ def calib_window_z(cfg, detector, n):
     Using the same sentences both as the null and as X0 would understate dependence. Options: split calib into
     two halves (null for p-values / copies for Sigma), or cross-fit. Then take windows of n consecutive
     sentences, as phase.test_documents does."""
-    raise NotImplementedError("needs out-of-fold z-scores for calib sentences; see docs/review.md item 58")
+    raise NotImplementedError("needs out-of-fold z-scores for calib sentences")
 
 
 # ----- Transforms and marginal p-values (Lecture 4, slide 9) ------------------------------------------------
@@ -110,7 +110,7 @@ def pc_adjust(X, Sigma, K):
     With a per-document style factor, Sigma = sigma_a^2 11' + I, xi_1 = 1/sqrt(p), and X-tilde is X minus its
     window mean. Signal loss (xi_k' mu) xi_k is small when mu is sparse (slide 23), but NOT in the dense half of
     the phase diagram: at theta = 0.1 most sentences are edited, the window mean is mostly signal, and removing
-    it costs most of the power (p = 16: 0.54 -> 0.11; docs/review.md item 59). Use it for theta >= 0.5, or
+    it costs most of the power (p = 16: 0.54 -> 0.11). Use it for theta >= 0.5, or
     report it next to plain HC."""
     lam, xi = np.linalg.eigh(Sigma)
     lam, xi = lam[::-1][:K], xi[:, ::-1][:, :K]                     # K largest
@@ -132,7 +132,7 @@ def choose_K(lam, n_copies):
     TODO: options are a scree / eigen-gap rule, eigenvalues above the Marchenko-Pastur edge
     (1 + sqrt(p / n_copies))^2 times the noise level, or the K that brings the null type I error of HC back to
     alpha on held-out calib windows. Until decided, pass K explicitly (K = 1 for a single style factor)."""
-    raise NotImplementedError("rule for K not chosen yet; see docs/review.md item 59")
+    raise NotImplementedError("no rule for K is implemented; pass K explicitly")
 
 
 # ----- HC on adjusted p-values (Lecture 4: "plug pi_1, ..., pi_p into HC") ---------------------------------
@@ -166,8 +166,7 @@ def q_star(theta, r):
 
 def threshold_select(X, theta, r):
     """S-hat(q*) = {j : X_j > sqrt(2 q* log p)}. An oracle rule: it needs (theta, r). In the empirical phase
-    diagrams theta is known by design and r can be r_eff, which gives the ideal recovery benchmark
-    (docs/review.md item 45)."""
+    diagrams theta is known by design and r can be r_eff, which gives the ideal recovery benchmark."""
     X = np.asarray(X, float)
     p = X.shape[-1]
     return X > np.sqrt(2 * q_star(theta, r) * np.log(p))
