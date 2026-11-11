@@ -5,6 +5,14 @@ data/*
 !data/sentences.parquet
 !data/segment_cache.jsonl
 !data/edits/
+!data/generated/
+data/generated/*
+!data/generated/topics.jsonl
+!data/generated/gpt-6-luna.jsonl
+!data/generated/claude-haiku-5.5.jsonl
+!data/generated/gemma-4-31b.jsonl
+!data/generated/gpt-oss-120b.jsonl
+!data/generated/qwen3.5-122b.jsonl
 *.egg-info/
 .env
 data/edits/*.batches
