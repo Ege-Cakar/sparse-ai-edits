@@ -52,11 +52,23 @@ def hc(p, alpha0=0.5, plus=False):
     return np.where(keep & np.isfinite(h), h, -np.inf).max(axis=1)
 
 
-def global_tests(alpha0):
+def decorrelate(p, rho, c):
+    """p-values of z_j - c mean(z) (z = Phi^-1(1 - p)), standardized to unit variance under the equicorrelated null
+    (every pair of z's in a document correlated rho). c = 1: PC-adjusted HC with K = 1, since the top principal
+    component of an equicorrelated covariance is the all-ones vector; c = n rho / (1 + (n - 1) rho): the innovated
+    transform Omega z / sqrt(diag Omega) (Hall & Jin 2010) of the same covariance."""
+    n, z = p.shape[1], norm.isf(p)
+    var = 1 - (2 * c - c ** 2) * (1 + (n - 1) * rho) / n
+    return norm.sf((z - c * z.mean(axis=1, keepdims=True)) / np.sqrt(var))
+
+
+def global_tests(alpha0, rho=0.0):
     return {"hc": lambda p: hc(p, alpha0),
             "hc_plus": lambda p: hc(p, alpha0, plus=True),
             "min_p": lambda p: -np.log(p.min(axis=1)),
-            "sum": lambda p: norm.isf(p).sum(axis=1) / np.sqrt(p.shape[1])}   # Stouffer
+            "sum": lambda p: norm.isf(p).sum(axis=1) / np.sqrt(p.shape[1]),   # Stouffer
+            "hc_pc": lambda p: hc(decorrelate(p, rho, 1.0), alpha0),
+            "hc_innov": lambda p: hc(decorrelate(p, rho, p.shape[1] * rho / (1 + (p.shape[1] - 1) * rho)), alpha0)}
 
 
 @cache
@@ -72,19 +84,24 @@ def null_thresholds(n, alpha, alpha0, reps, seed, rho=0.0):
     I error to 0.04-0.06, near but not exactly at alpha; correlation that decays with distance (Toeplitz) or depends
     on the document is not captured.
     """
+    p = null_pvalues(n, reps, seed, rho)
+    out = {name: np.quantile(f(p), 1 - alpha) for name, f in global_tests(alpha0, rho).items()}
+    return out | {"hc_all": np.quantile(hc(p, 1.0), 1 - alpha)}
+
+
+def null_pvalues(n, reps, seed, rho=0.0):
+    """(reps, n) null documents' p-values, iid (rho = 0) or equicorrelated in z (see null_thresholds)."""
     rng = np.random.default_rng(seed)
     if rho == 0:
-        p = rng.random((reps, n))
-    else:
-        p = norm.sf(np.sqrt(rho) * rng.standard_normal((reps, 1)) + np.sqrt(1 - rho) * rng.standard_normal((reps, n)))
-    out = {name: np.quantile(f(p), 1 - alpha) for name, f in global_tests(alpha0).items()}
-    return out | {"hc_all": np.quantile(hc(p, 1.0), 1 - alpha)}
+        return rng.random((reps, n))
+    return norm.sf(np.sqrt(rho) * rng.standard_normal((reps, 1)) + np.sqrt(1 - rho) * rng.standard_normal((reps, n)))
 
 
 def intraclass_correlation(z, groups):
     """One-way ANOVA estimate of the correlation of z within groups (documents), floored at 0; groups with a
-    single member are ignored. Unbiased for the equicorrelated model of null_thresholds at any group sizes."""
-    df = pd.DataFrame({"z": z, "g": groups})
+    single member and NaN z are ignored. Built from unbiased mean squares, so consistent for the equicorrelated
+    model of null_thresholds at any group sizes, but as a ratio (and floored) not exactly unbiased."""
+    df = pd.DataFrame({"z": z, "g": groups}).dropna()
     df = df[df.groupby("g").z.transform("size") >= 2]
     k = df.groupby("g").z.agg(["mean", "var", "size"])
     if len(k) < 2:
@@ -144,11 +161,12 @@ def n_edited(n, theta):
     return np.round(np.asarray(n) ** (1 - theta)).astype(int)
 
 
-def evaluate(p, truth, thresholds, alpha, alpha0, q, lam):
+def evaluate(p, truth, thresholds, alpha, alpha0, q, lam, rho=0.0):
     """Per-document outcomes: rejection by each global test; Hamming error / m and exact recovery for BH(q) and
     Bonferroni(alpha) support estimates; the true edited fraction m / n, its Storey estimate and squared error,
     and the Meinshausen-Rice lower bound and whether it covers."""
-    out = {f"reject_{name}": f(p) > thresholds[name] for name, f in global_tests(alpha0).items()}
+    stat = {name: f(p) for name, f in global_tests(alpha0, rho).items()}
+    out = {f"reject_{name}": s > thresholds[name] for name, s in stat.items()} | {f"stat_{name}": s for name, s in stat.items()}
     m = truth.sum(axis=1)
     eps, storey, lower = m / p.shape[1], eps_storey(p, lam), eps_lower(p, thresholds["hc_all"])
     out |= dict(eps_true=eps, eps_storey=storey, sqerr_eps_storey=(storey - eps) ** 2, eps_lower=lower,

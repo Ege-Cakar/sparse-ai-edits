@@ -91,6 +91,36 @@ def pack(docs, tok, seq_len, order):
     return win(ids, np.int64), win(ws, np.float32), win(ss, np.int64), srcs
 
 
+def windows(s, edits, a, editors, thetas, seed, tok, seq_len):
+    """Arm a's training windows (ids, weights) in random order, and its documents, drawn and ordered with the seed."""
+    rng = np.random.default_rng(seed)
+    docs = documents(s, edits, a["data"], a["weight"], editors, thetas, rng, a.get("passes"))
+    return (*shuffled_windows(docs, tok, seq_len, rng), docs)
+
+
+def shuffled_windows(docs, tok, seq_len, rng):
+    """(ids, weights) of docs packed in a random order, the windows then shuffled."""
+    ids, w, _, _ = pack(docs, tok, seq_len, rng.permutation(len(docs)))
+    perm = rng.permutation(len(ids))
+    return ids[perm], w[perm]
+
+
+def load(cfg, fresh):
+    """(sentences, sentence_table of pretrain.train_splits, the same plus fresh/sentences.parquet or None if not fresh,
+    edits, editors): edits maps (editor, sentence_id) -> (text, actual_r) for the training editors' accepted train and
+    val edits."""
+    c = cfg["pretrain"]
+    sents = pd.read_parquet(path(cfg, "sentences.parquet"))
+    v = pd.read_parquet(path(cfg, "versions.parquet"), columns=["sentence_id", "split", "editor", "text", "actual_r"])
+    editors = sorted(set(training_editors(cfg)) & set(v.editor[v.split.isin(["train", "val"])]))
+    e = v[v.editor.isin(editors) & v.split.isin(["train", "val"])]
+    edits = {(ed, sid): (t, r) for ed, sid, t, r in zip(e.editor, e.sentence_id, e.text, e.actual_r)}
+    train = sents[sents.split.isin(c["train_splits"])]
+    s_fresh = sentence_table(pd.concat([train, pd.read_parquet(path(cfg, "fresh", "sentences.parquet"))])) if fresh \
+        else None
+    return sents, sentence_table(train), s_fresh, edits, editors
+
+
 def weighted_loss(logits, targets, w, denom):
     ce = F.cross_entropy(logits.flatten(0, 1).float(), targets.flatten(), reduction="none")
     return (ce * w.flatten()).sum() / denom
@@ -124,11 +154,7 @@ def run(cfg, arm, size, seed, s, edits, editors, tok, test):
     out = path(cfg, "pretrain", f"{arm}_{size}_seed{seed}", "x").parent
     if (out / "metrics.json").exists():
         return print(f"{out.name}: done, skipped")
-    rng = np.random.default_rng(seed)
-    docs = documents(s, edits, a["data"], a["weight"], editors, cfg["phase"]["thetas"], rng, a.get("passes"))
-    ids, w, _, _ = pack(docs, tok, c["seq_len"], rng.permutation(len(docs)))
-    perm = rng.permutation(len(ids))   # windows in random order
-    ids, w = ids[perm], w[perm]
+    ids, w, docs = windows(s, edits, a, editors, cfg["phase"]["thetas"], seed, tok, c["seq_len"])
     torch.manual_seed(seed)
     model = llama(c, z).cuda()
     n_emb = model.get_input_embeddings().weight.numel()
@@ -174,16 +200,8 @@ def main():
     cfg, args = cli(__doc__, args)
     c = cfg["pretrain"]
     tok = AutoTokenizer.from_pretrained(c["tokenizer"], revision=c.get("tokenizer_revision"))
-    sents = pd.read_parquet(path(cfg, "sentences.parquet"))
-    v = pd.read_parquet(path(cfg, "versions.parquet"), columns=["sentence_id", "split", "editor", "text", "actual_r"])
-    editors = sorted(set(training_editors(cfg)) & set(v.editor[v.split.isin(["train", "val"])]))
-    e = v[v.editor.isin(editors) & v.split.isin(["train", "val"])]
-    edits = {(ed, sid): (t, r) for ed, sid, t, r in zip(e.editor, e.sentence_id, e.text, e.actual_r)}
-    s = sentence_table(sents[sents.split.isin(c["train_splits"])])
     arms = args.arms or list(c["arms"])
-    if any(c["arms"][a]["data"] == "fresh" for a in arms):
-        fresh = pd.read_parquet(path(cfg, "fresh", "sentences.parquet"))
-        s_fresh = sentence_table(pd.concat([sents[sents.split.isin(c["train_splits"])], fresh]))
+    sents, s, s_fresh, edits, editors = load(cfg, any(c["arms"][a]["data"] == "fresh" for a in arms))
     test_docs = documents(sentence_table(sents[sents.split == c["eval_split"]]), {}, "human", "none", [], [], None)
     test_ids, _, test_src, names = pack(test_docs, tok, c["seq_len"], range(len(test_docs)))
     print(f"editors {editors}; {len(test_ids)} test windows of {c['seq_len'] + 1} tokens", flush=True)

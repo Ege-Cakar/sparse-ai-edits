@@ -1,6 +1,6 @@
 """Convert every detector's scores to p-values against held-out human sentences of similar length.
 
-Null: human sentences of the calib split from the same source. Writes pvalues/<detector>.parquet
+Null: human sentences of the calib split from the same source (or, with calibrate.pool_sources, from every source). Writes pvalues/<detector>.parquet
 (version_id, p) for all versions outside the calib split.
 
 Also writes pvalues_calib/<detector>.parquet (version_id, p, fold) for the calib sentences themselves, cross-fitted:
@@ -28,7 +28,7 @@ def main():
         df = versions.merge(pd.read_parquet(f), on="version_id")
         df["score"] *= -1 if f.stem.startswith(HIGHER_IS_HUMAN) else 1
         rng, out = np.random.default_rng(cfg["seed"]), []
-        for source, g in df.groupby("source"):
+        for source, g in df.groupby(null_groups(cfg, df)):
             null = g[(g.split == "calib") & (g.editor == "human")]
             test = g[g.split != "calib"]
             p = conformal_pvalues(null.score.to_numpy(), null.n_words.to_numpy(), test.score.to_numpy(),
@@ -39,6 +39,12 @@ def main():
         cross_fit_calib(cfg, df).to_parquet(path(cfg, "pvalues_calib", f.name), index=False)
 
 
+def null_groups(cfg, df):
+    """The null each sentence is ranked against: its own source's calib sentences, or (calibrate.pool_sources) the
+    calib sentences of every source pooled; length bins apply within either."""
+    return pd.Series("pooled", index=df.index) if cfg["calibrate"].get("pool_sources") else df.source
+
+
 def calib_fold(cfg, doc_ids):
     return np.array([zlib.crc32(repr((cfg["seed"], int(d))).encode()) % 2 for d in doc_ids])
 
@@ -46,7 +52,8 @@ def calib_fold(cfg, doc_ids):
 def cross_fit_calib(cfg, df):
     """p-values of human calib sentences, each against the calib sentences of the other fold of its source."""
     rng, out = np.random.default_rng([cfg["seed"], 1]), []
-    for _, g in df[(df.split == "calib") & (df.editor == "human")].groupby("source"):
+    cal = df[(df.split == "calib") & (df.editor == "human")]
+    for _, g in cal.groupby(null_groups(cfg, cal)):
         fold = calib_fold(cfg, g.doc_id)
         for k in (0, 1):
             null, test = g[fold != k], g[fold == k]

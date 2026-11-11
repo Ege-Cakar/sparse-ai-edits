@@ -53,7 +53,7 @@ def outcomes(p, truth, cfg, rho=0.0):
     """Per-document outcomes with thresholds for iid p-values (rho = 0) or equicorrelated ones (rho > 0)."""
     c = cfg["phase"]
     thresholds = null_thresholds(p.shape[1], c["alpha"], c["hc_alpha0"], c["null_mc_reps"], cfg["seed"], rho)
-    return evaluate(p, truth, thresholds, c["alpha"], c["hc_alpha0"], c["bh_q"], c["storey_lambda"])
+    return evaluate(p, truth, thresholds, c["alpha"], c["hc_alpha0"], c["bh_q"], c["storey_lambda"], rho)
 
 
 def summarize(out, level):
@@ -175,8 +175,11 @@ def calib_correlation(cfg, detector, versions):
     calibrate.py ({} if that file is missing, and no conformal_dependent rows are produced)."""
     f = Path(cfg["data_dir"], "pvalues_calib", f"{detector}.parquet")
     if not f.exists():
+        print(f"{detector}: no {f}; only i.i.d. thresholds (rerun calibrate.py for conformal_dependent rows)")
         return {}
     cal = versions.merge(pd.read_parquet(f), on="version_id")
+    if cfg["phase"].get("pooled_rho"):   # one rho over all sources' calib documents (domain unknown at test time)
+        return dict.fromkeys(cal.source.unique(), intraclass_correlation(norm.isf(cal.p), cal.doc_id))
     return {s: intraclass_correlation(norm.isf(g.p), g.doc_id) for s, g in cal.groupby("source")}
 
 

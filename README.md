@@ -1,28 +1,28 @@
-# Sparse AI edits in human text
+# Who Touched My Sentence?
 
-Stat 236 project (Çakar, Huang, Nguyen). We AI-edit sentences of pre-2020 human text (web pages, student essays,
-news, abstracts, peer reviews, emails, books), score each sentence with several detectors, turn scores into p-values,
-and test when sparse edits in a document can be detected and located, compared with the Donoho-Jin rare/weak phase
-diagram.
+Code for the Stat 236 project "Who Touched My Sentence? Inference for AI-Edited Documents in the Sparse and Weak
+Regime" (Çakar, Huang, Nguyen). LLMs edit sentences of human documents, sentence detectors are fine-tuned on the edits,
+their scores become conformal p-values, and Higher Criticism tests each document for AI edits. Methods and results are
+in the paper, [`report/report.pdf`](report/report.pdf); the numbers behind its tables are in [`results/`](results/).
 
-All code and settings are preliminary, only checked to run end to end. Open decisions: [docs/review.md](docs/review.md).
-Progress: [docs/to-do.md](docs/to-do.md).
-
-## Layout
-
-- `configs/default.yaml`: every setting.
-- `src/sparse_edits/`: one module per step: `corpus` → `edit` → `score_lm` / `score_classifier` → `calibrate` → `phase`.
-  `sources.py` loads the human-text datasets; `text.py` and `stats.py` are shared helpers; `hc_variants.py` has
-  HC under dependence; `edit_mlm.py` is the optional masked-LM control editor (`configs/mlm_control.yaml`).
-- `studies/`: side studies with their own configs (`style_comparison`: which cheap editor edits like a frontier one).
-- `tests/`: unit tests.
-
-## Running
+## Setup
 
 ```bash
 uv sync
-uv run pytest
-uv run python -m sparse_edits.<step> --help
 ```
 
-Outputs go under `data_dir` from the config.
+API editors read `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` from `.env`. Open-weight editors and the sentence segmenter
+call a vLLM server at `localhost:8000` (`slurm/setup_vllm.sbatch`). Gated Hugging Face models and datasets (Llama 3.x,
+EditLens) need a Hugging Face login.
+
+## Running
+
+Each step is a module in `src/sparse_edits/` that reads `configs/default.yaml` and writes under `data/`. In order:
+`corpus` → `edit` → `detect` → `ensemble` → `calibrate` → `phase` → `report`.
+
+```bash
+uv run python -m sparse_edits.corpus --help
+uv run pytest
+```
+
+GPU steps have Slurm scripts in `slurm/`, written for the Harvard cluster.

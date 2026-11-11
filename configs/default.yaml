@@ -138,6 +138,17 @@ edit:
        api_key_env: ANTHROPIC_API_KEY, heldout: false, params: {max_tokens: 1024, thinking: {type: between_tools}},
        price: {input: 1.0, cache_read: 0.05, cache_write: 1.25, output: 5.0}}
 
+generate:                      # fully AI-generated documents, the null of the second-stage test (generate.py, stage2.py;
+                               # decided 2026-11-04 by Ege)
+  splits: [calib, test]        # every calib and test document gets a topic and one document per generator
+  topic_writer: gpt-6-luna     # an edit.editors entry; reads the human document, writes a one-line topic
+  generators: [gpt-6-luna, claude-haiku-5.5, gemma-4-31b, gpt-oss-120b, qwen3.5-122b]   # edit.editors entries
+  calibration: [gpt-6-luna, claude-haiku-5.5, gemma-4-31b, gpt-oss-120b]   # H0' is calibrated on these; the rest
+                                                                          # are held out
+  max_tokens: 30000            # replaces each entry's output cap; a prompt plus this fits vLLM's 32,768
+  max_attempts: 3              # resample an empty or cut-off reply
+  concurrency: 256
+
 pretrain:                      # week-4 LMs (pretrain.py; docs/review.md items 67-71)
   tokenizer: EleutherAI/pythia-160m   # Pythia's GPT-NeoX BPE (item 69)
   vocab_size: 50304            # the tokenizer's 50,277 ids, padded as in Pythia
@@ -183,7 +194,68 @@ delta:                         # paired Δ test of the LMs (delta.py; docs/revie
   seed: 0
   batch_size: 256
 
-lm_scores:                     # one forward pass of both models gives all three zero-shot scores
+continued:                     # continued pretraining of released LMs with LoRA on pretrain.arms (continued_pretrain.py;
+                               # docs/review.md item 73, decided 2026-11-06 by Ege)
+  bases:                       # revisions pinned 2026-11-06; native_len: the context length the model was trained at
+    pythia-410m: {model: EleutherAI/pythia-410m, revision: 9879c9b5f8bea9051dcb0e68dff21493d67e9d4f, native_len: 2048}
+    pythia-1b: {model: EleutherAI/pythia-1b, revision: f73d7dcc545c8bd326d8559c8ef84ffe92fea6b2, native_len: 2048}
+    # sweeps: these human-repeated sweeps' best lr was the grid's smallest, 1.25e-5 (2026-11-08), so it goes on downward
+    pythia-1.4b: {model: EleutherAI/pythia-1.4b, revision: fedc38a16eea3bd36a96b906d78d11d2ce18ed79, native_len: 2048,
+                  sweeps: {human-repeated: [3.125e-6, 6.25e-6, 1.25e-5, 2.5e-5, 5.0e-5, 1.0e-4, 2.0e-4]}}
+    pythia-2.8b: {model: EleutherAI/pythia-2.8b, revision: 2a259cdd96a4beb1cdf467512e3904197345f6a9, native_len: 2048,
+                  sweeps: {human-repeated: [3.125e-6, 6.25e-6, 1.25e-5, 2.5e-5, 5.0e-5, 1.0e-4, 2.0e-4]}}
+    pythia-6.9b: {model: EleutherAI/pythia-6.9b, revision: c0e3eee36dc47af0c49f361c74cfe459c09f7f23, native_len: 2048,
+                  sweeps: {human-repeated: [3.125e-6, 6.25e-6, 1.25e-5, 2.5e-5, 5.0e-5, 1.0e-4, 2.0e-4]}}
+    # sweeps: the OLMo-2 human sweeps' best lr was the grid's largest, 8e-4 (2026-11-07), so their grid goes on upward
+    olmo-2-1b: {model: allenai/OLMo-2-0425-1B, revision: a1847dff35000b4271fa70afc5db10fd29fedbdf, native_len: 4096,
+                sweeps: {human: [5.0e-5, 1.0e-4, 2.0e-4, 4.0e-4, 8.0e-4, 1.6e-3, 3.2e-3]}}
+    olmo-2-1b-instruct: {model: allenai/OLMo-2-0425-1B-Instruct, revision: 48d788eca847d4d7548f375ad03d3c9312f6139e,
+                         native_len: 4096, sweeps: {human: [5.0e-5, 1.0e-4, 2.0e-4, 4.0e-4, 8.0e-4, 1.6e-3, 3.2e-3]}}
+  seq_len: native              # training context length (decided 2026-11-07 by Ege)
+  eval_seq_lens: [512, native] # every run and base is evaluated at both
+  tokens_per_step: 8192        # 4 windows of 2048, 2 of 4096: the from-scratch tokens a step (Ege, 2026-11-07)
+  lora: {r: 16, lora_alpha: 32, lora_dropout: 0.05, target_modules: all-linear}   # detect.py's decoder setting
+  betas: [0.9, 0.95]
+  weight_decay: 0.0
+  warmup: 0.05                 # then cosine decay to min_lr_frac of the lr, as pretrain
+  min_lr_frac: 0.1
+  max_grad_norm: 1.0
+  evals: 5                     # test perplexity this many times per run
+  eval_tokens: 32768           # tokens per evaluation forward pass
+  ckpt_minutes: 10             # kempner_requeue preempts without warning
+  sweeps:                      # a run's lr is the best of its sweep: the sweep's pretrain.arms arm trained at
+                               # sweep_seed without a held-out part of the training documents, scored by perplexity
+                               # on them
+    human: [5.0e-5, 1.0e-4, 2.0e-4, 4.0e-4, 8.0e-4]             # runs that see each document once
+    human-repeated: [1.25e-5, 2.5e-5, 5.0e-5, 1.0e-4, 2.0e-4]  # 10-pass runs: at the human sweep's lr they memorize
+                                                               # the repeated documents (2026-11-08)
+  sweep_holdout: 0.1           # of each source's training documents
+  sweep_seed: 0
+  arms:                        # beyond pretrain.arms, whose runs use the human sweep's lr (decided 2026-11-08 by Ege).
+                               # sweep: whose lr the arm uses; rate: each step's lr is scaled by the mean weight of its
+                               # tokens, so a token of weight w counts as about w tokens
+    mixture-strength-rate: {data: mixture, weight: strength, rate: true, sweep: human}
+    mixture-mask-rate: {data: mixture, weight: mask, rate: true, sweep: human}
+    all-edited-1pass-strength-rate: {data: all_edited, weight: strength, passes: 1, rate: true, sweep: human}
+    all-edited-1pass-mask-rate: {data: all_edited, weight: mask, passes: 1, rate: true, sweep: human}
+    human-repeated-10pass-lr: {data: repeat, weight: none, sweep: human-repeated}
+    all-edited-unweighted-10pass-lr: {data: all_edited, weight: none, sweep: human-repeated}
+    all-edited-strength-rate-10pass-lr: {data: all_edited, weight: strength, rate: true, sweep: human-repeated}
+    all-edited-mask-rate-10pass-lr: {data: all_edited, weight: mask, rate: true, sweep: human-repeated}
+    human-fresh-10pass-lr: {data: fresh, weight: none, sweep: human-repeated}   # fresh vs repeated at one lr
+    # Control (decided 2026-11-08 by Ege): all-edited-strength-rate-10pass-lr's weights with every edited token at their
+    # mean, so it learns as much from AI-edited text in all, without strength's targeting of the heavier edits
+    all-edited-uniform-rate-10pass-lr: {data: all_edited, weight: strength-mean, rate: true, sweep: human-repeated}
+    # Rewrites (decided 2026-11-08 by Ege): each calib document's rewrite from its topic (generate.py) by one of
+    # rewrite_generators, drawn per document, against the same calib documents human; per source, the side with more
+    # tokens is cut to the other's by dropping whole documents in a seeded order (continued_pretrain.calib_pair)
+    rewrites-calib: {data: rewrites, weight: none, sweep: human}
+    human-calib: {data: human_calib, weight: none, sweep: human}
+  rewrite_generators: [gpt-6-luna, claude-haiku-5.5, gemma-4-31b, gpt-oss-120b]   # generate.py's calibration
+                                                                                 # generators; Qwen, the held-out
+                                                                                 # editor, left out
+
+lm_scores:                    # one forward pass of both models gives all three zero-shot scores
   pairs:                       # both pairs (decided 2026-11-04 by Ege; review item 28)
     falcon-7b: {observer: tiiuae/falcon-7b, performer: tiiuae/falcon-7b-instruct}   # the Binoculars paper's pair
     llama-3-8b: {observer: meta-llama/Meta-Llama-3-8B,                              # Fast-DetectGPT README's best
@@ -219,18 +291,47 @@ pretrained:                    # off-the-shelf AI-text classifiers, used as rele
 external:                      # released detectors with their own heads (external.py; decided 2026-11-06 by Ege)
   splits: [calib, val, test]
   detectors:
-    - {name: editlens, kind: editlens, model: pangram/editlens_Llama-3.2-3B, base: meta-llama/Llama-3.2-3B,
+    - &editlens {name: editlens, kind: editlens, model: pangram/editlens_Llama-3.2-3B, base: meta-llama/Llama-3.2-3B,
        max_tokens: 1024, batch_size: 256, doc_batch_size: 16}   # Thai et al., ICLR 2026; CC BY-NC-SA 4.0, gated;
                                                                  # 4-bit NF4 base as configs/llama.yaml (2026-11-07)
     - {name: desklib, kind: desklib, model: desklib/ai-text-detector-v1.01, max_tokens: 768, batch_size: 256,
        doc_batch_size: 32}                                      # DeBERTa-v3-large, trained on RAID; MIT
-    - {name: gpttrace-v8s-1b, kind: gpttrace, model: nakas/gpttrace-v8s-1b, max_tokens: 512, batch_size: 256,
+    - &gpttrace {name: gpttrace-v8s-1b, kind: gpttrace, model: nakas/gpttrace-v8s-1b, max_tokens: 512, batch_size: 256,
        doc_batch_size: 32}                                      # Ettin-encoder-1B; CC BY-SA 4.0
     - {name: gpttrace-ettin150-v5e, kind: gpttrace_onnx, model: nakas/gpttrace-ettin150-text-v5e, max_tokens: 512,
        batch_size: 64, doc_batch_size: 8}                       # int8 ONNX, CPU; CC BY-SA 4.0
 
+thirdparty:                    # third-party datasets through our pipeline (thirdparty.py; decided 2026-11-06/07 by Ege)
+  raw_dir: thirdparty/raw      # RAID's unattacked CSVs (dataset.raid-bench.xyz) and APT-Eval's threshold set
+  min_null_docs: 100           # per-domain nulls: domains with fewer null documents are pooled within their dataset
+  null_sentences_per_bin: 200  # length bins: min(calibrate.length_bins, null sentences / this)
+  datasets:                    # Hub datasets at the revisions current on 2026-11-07
+    editlens: {repo: pangram/editlens_iclr, revision: 34ac1ade5a814c4cea098ef70328d92880d1f1c0}   # gated
+    apt_eval: {repo: smksaha/apt-eval, revision: 1a183126ec24791c14c3a3254e8cdb5c58935d27,   # GitHub: its threshold set
+               github: "https://raw.githubusercontent.com/ShoumikSaha/ai-polished-text/53b1d2619a633e025998d6c7d0a12b0228b589da/data"}
+    opai: {repo: OpAI-Bench1/OpAI-Bench, revision: 072c03c7051409346aaba05168d183cf6d863ee9,
+           files: ["default/dev/*", "default/test/*"]}
+    pasted: {repo: linzw/PASTED, revision: 5c816618aba15ba0b8cffcfb63b499fbc3e15342, files: ["*.zip"]}
+    aitdna: {repo: UKPLab/AITDNA, revision: 21d77f7d44833507750c0da309295c4147c1bda5}
+    peer_review: {repo: rounaksaha12/ai-in-peer-review, revision: 3095e1f5b136ebd4cdffb113112336d3c94e4582}
+    raid: {per_cell: 200}      # AI documents per (domain, model, decoding, repetition penalty) cell of train_none.csv
+  ensemble: [full-llama-3.1-8b_lr2.5e-05, full-olmo-3-7b_lr2.5e-05_epoch2, full-deberta-v3-large_lr5e-06,
+             full-olmo-3-32b_lr5e-05]
+  detectors:                   # sentence scores from all; whole-document scores too where documents: true
+    - {name: full-llama-3.1-8b_lr2.5e-05, kind: run, run: full-llama-3.1-8b_lr2.5e-05, batch_size: 256}
+    - {name: full-olmo-3-7b_lr2.5e-05_epoch2, kind: run, run: full-olmo-3-7b_lr2.5e-05, epoch: 2, batch_size: 256}
+    - {name: full-deberta-v3-large_lr5e-06, kind: run, run: full-deberta-v3-large_lr5e-06, batch_size: 256}
+    - {name: full-olmo-3-32b_lr5e-05, kind: run, run: full-olmo-3-32b_lr5e-05, batch_size: 256}
+    - {<<: *editlens, documents: true}
+    - {name: meld, kind: meld, model: anon-review-meld-2026/meld, revision: ddfc9c789b8c8d0f92d3774265316d418c96dc67,
+       batch_size: 256, doc_batch_size: 16, documents: true,   # Ettin-encoder-1B; MIT
+       own_thresholds: {fpr_0.01: 3.919607639312744, fpr_0.05: 2.3018815517425537}}   # meld_config.json overall offsets
+    - {<<: *gpttrace, documents: true,                         # best open-weight entry on RAID (2026-11-08)
+       own_thresholds: {fpr_0.01: 9.3, fpr_0.005: 10.7}}         # its model card's calibrated logits
+
 calibrate:
   length_bins: 10              # null quantile bins on n_words of the tested sentence
+  pool_sources: false          # true: rank against every source's calib sentences (domain unknown)
 
 phase:
   modes: [window, whole]
@@ -242,11 +343,17 @@ phase:
   storey_lambda: 0.5           # Storey estimate of the edited fraction: 1 - #{p > lambda} / ((1 - lambda) n)
   ci_level: 0.95               # intervals on every per-cell mean (Wilson for rates, normal for means)
   hc_alpha0: 0.5
+  doc_conformal: {min_docs: 60, max_bands: 3}   # calib documents per length band, bands per source (doc_conformal.py)
+  pooled_rho: false            # true: one rho over all sources' calib documents
   null_mc_reps: 100000         # iid-uniform Monte Carlo for test thresholds at each n
   empirical_null_central: 0.5  # central fraction of z used for Efron central matching
   sim_docs: 2000
   sim_r: [0.1, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0]
   plot_metrics: [reject_hc, exact_bonferroni]
+
+stage2:                        # H0' (every sentence AI) on documents (stage2.py); levels and tests as phase
+  min_sentences: 16            # whole test documents with at least this many sentences, as phase.whole_min_sentences
+  eps0: [0.9]                  # composite nulls "at least eps0 of the sentences AI" (Meinshausen-Rice bound)
 
 detector:                      # the detector search (detect.py; docs/review.md item 33). Values from model cards and
   search_frac: 0.2             # papers (2026-11-01 research note in docs/review.md); train documents in the search

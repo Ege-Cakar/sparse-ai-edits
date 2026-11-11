@@ -26,7 +26,24 @@ from .text import _split
 DESCRIPTION = {"fineweb_edu": "an educational web page", "pes2o": "a scientific paper extracted from PDF",
                "persuade": "a student essay", "ellipse": "an essay by an English-language learner",
                "xsum": "a BBC news article", "openreview": "a peer review of a research paper",
-               "enron": "a business email", "writingprompts": "a short story posted on Reddit"}
+               "enron": "a business email", "writingprompts": "a short story posted on Reddit",
+               # third-party datasets (thirdparty.py), keyed dataset/domain
+               "editlens/amazon_reviews": "an Amazon product review",
+               "editlens/google_reviews": "a Google review of a local business",
+               "editlens/fineweb_edu": "an educational web page", "editlens/news": "a news article",
+               "editlens/reddit_writing_prompts": "a short story posted on Reddit",
+               "editlens/enron_email": "a business email",
+               "apt_eval/blog": "a personal blog post", "apt_eval/email_content": "an email",
+               "apt_eval/game_review": "a video game review", "apt_eval/news": "a news article",
+               "apt_eval/paper_abstract": "the abstract of a scientific paper", "apt_eval/speech": "a speech transcript",
+               "apt_eval/TruthfulQA_LLMs": "an answer to a question", "apt_eval/NarrativeQA_LLMs": "a story summary",
+               "apt_eval/SQuAD1_LLMs": "an encyclopedia passage",
+               "peer_review/peer_review": "a peer review of a research paper",
+               "raid/abstracts": "the abstract of a scientific paper", "raid/books": "a plot summary of a book",
+               "raid/news": "a news article", "raid/poetry": "a poem", "raid/recipes": "a recipe",
+               "raid/reddit": "a Reddit post", "raid/reviews": "a movie review", "raid/wiki": "a Wikipedia article",
+               "raid/unknown": "a text (an abstract, book summary, news article, poem, recipe, Reddit post, movie "
+                               "review or Wikipedia article)"}
 PROMPT = """Split this text, {description}, into sentences. Write each sentence on its own line, never two sentences \
 on one line, with an empty line between paragraphs.
 - A line break inside a sentence is line wrapping: join the lines.

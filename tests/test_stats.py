@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 from scipy.stats import binom, false_discovery_control, kstest, norm
 
 from sparse_edits.stats import (bh, conformal_pvalues, detection_boundary, empirical_null, eps_lower, eps_storey,
@@ -6,6 +7,13 @@ from sparse_edits.stats import (bh, conformal_pvalues, detection_boundary, empir
                                 null_thresholds, sample_truth, wilson)
 
 rng = np.random.default_rng(0)
+
+
+@pytest.fixture(autouse=True)
+def fresh_rng():
+    """Every test draws from its own seeded stream, so its draws do not depend on which tests ran before it."""
+    global rng
+    rng = np.random.default_rng(0)
 
 
 def test_conformal_pvalues_uniform_under_null_with_length_dependence():
@@ -23,7 +31,7 @@ def test_conformal_pvalues_nan_scores():
 
 
 def test_empirical_null_recovers_shifted_null():
-    z = np.concatenate([rng.normal(0.3, 1.2, 95000), rng.normal(4, 1, 5000)])
+    z = np.concatenate([rng.normal(0.3, 1.2, 950000), rng.normal(4, 1, 50000)])   # sd of sigma0 ~0.012 (0.037 at 1/10)
     delta0, sigma0 = empirical_null(z)
     assert abs(delta0 - 0.3) < 0.05 and abs(sigma0 - 1.2) < 0.05
 
@@ -101,7 +109,7 @@ def test_dependent_thresholds_restore_level_that_iid_thresholds_lose():
     p = equicorrelated_p(50000, n, rho, rng)
     iid, dep = null_thresholds(n, 0.05, 0.5, 100000, 0), null_thresholds(n, 0.05, 0.5, 100000, 0, rho)
     assert null_thresholds(n, 0.05, 0.5, 100000, 0, 0.0) == iid                 # rho = 0 is the old iid null
-    for name, f in global_tests(0.5).items():
+    for name, f in global_tests(0.5, rho).items():                             # incl. PC-adjusted, innovated
         assert abs((f(p) > dep[name]).mean() - 0.05) < 0.006, name
     assert (global_tests(0.5)["sum"](p) > iid["sum"]).mean() > 0.15             # iid Stouffer threshold: ~0.20
 
@@ -112,3 +120,11 @@ def test_intraclass_correlation_recovers_rho_with_unequal_groups():
     z = np.sqrt(0.15) * rng.standard_normal(len(sizes))[groups] + np.sqrt(0.85) * rng.standard_normal(len(groups))
     assert abs(intraclass_correlation(z, groups) - 0.15) < 0.015
     assert intraclass_correlation(rng.standard_normal(len(groups)), groups) < 0.01
+
+
+def test_intraclass_correlation_ignores_nan():
+    groups = np.repeat(np.arange(500), 8)
+    z = np.sqrt(0.2) * rng.standard_normal(500)[groups] + np.sqrt(0.8) * rng.standard_normal(len(groups))
+    gaps = np.where(rng.random(len(z)) < 0.2, np.nan, z)
+    ok = ~np.isnan(gaps)
+    assert intraclass_correlation(gaps, groups) == pytest.approx(intraclass_correlation(z[ok], groups[ok]))

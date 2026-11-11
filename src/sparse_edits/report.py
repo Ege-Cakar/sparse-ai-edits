@@ -89,7 +89,8 @@ def type1_figure(cfg, detectors, alpha, level):
         ax.axhline(alpha, color=INK_2, ls="--", lw=1)
         ax.annotate(f"nominal {alpha:g}", (len(TESTS) - 0.5, alpha), ha="right", va="bottom", fontsize=8,
                     color=INK_2)
-        ax.set(xticks=range(len(TESTS)), xticklabels=TESTS.values(), title=f"{det} ({len(d):,} human documents)")
+        ax.set(xticks=range(len(TESTS)), xticklabels=TESTS.values(),
+               title=f"{det} ({len(d):,} human documents)" if nulls else f"{det} (no whole documents)")
         ax.spines[["top", "right"]].set_visible(False)
         ax.legend(frameon=False, fontsize=8, loc="upper left")
     axes[0, 0].set_ylabel("rejection rate on human-only documents")
@@ -110,7 +111,7 @@ def power_figure(cfg, detectors, level):
             lo, hi = wilson(s["sum"].to_numpy(), s["size"].to_numpy(), level)
             ax.fill_between(s.index, lo, hi, color=SERIES[k], alpha=0.15, lw=0)
             ax.plot(s.index, rate, color=SERIES[k], lw=2, marker="o", ms=4,
-                    label=f"n {band} ({g.doc_n.size // g.theta.nunique() // g.editor.nunique():,} docs)")
+                    label=f"n {band} ({g.groupby(['editor', 'target_r', 'theta'], dropna=False).size().max():,} docs)")
         ax.axhline(null, color=INK_2, ls="--", lw=1, label="human-only documents")
         ax.set(title=f"{det}, {d.null_label.iloc[0]}", xlabel=r"$\vartheta$  (m = round($n^{1-\vartheta}$) edited sentences)",
                ylim=(0, None))

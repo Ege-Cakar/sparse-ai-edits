@@ -19,12 +19,14 @@ TPR at detector.fpr; pooled, per editor and per source, and the run's settings),
 runs, model.pt (the trained weights), plus model_epoch<E>.pt and val_scores_epoch<E>.parquet, the best of them by the
 end of each epoch E; resumes from detector/<run>/ckpt.pt after a preemption. --score SPLIT ...
 scores every version of those splits with a sentence run's model.pt into scores/<run>.parquet (version_id, score), the
-input of calibrate.py; with --epoch E, with model_epoch<E>.pt into scores/<run>_epoch<E>.parquet.
+input of calibrate.py; with --epoch E, with model_epoch<E>.pt into scores/<run>_epoch<E>.parquet. --versions FILE
+scores the versions in FILE (under data_dir) instead, into scores/ next to it (e.g. generated/scores/).
 """
 import json
 import shutil
 import time
 from bisect import bisect_right
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -368,7 +370,7 @@ def run_sentence(cfg, run, train, val, out, max_steps):
                lambda mdl: val.assign(score=scores_of(mdl, run, tok, vt, order)), out, max_steps)
 
 
-def score(cfg, run, versions, splits, out, epoch=None):
+def score(cfg, run, versions, splits, out, epoch=None, scores_dir="scores"):
     """scores/<run>.parquet (version_id, score) for every version in splits, from the trained out/model.pt; with epoch
     E, scores/<run>_epoch<E>.parquet from out/model_epoch<E>.pt (the best weights by the end of epoch E)."""
     assert run["kind"] == "sentence", f"{run['name']}: only sentence runs keep a model to score with"
@@ -379,7 +381,7 @@ def score(cfg, run, versions, splits, out, epoch=None):
     texts = v.text.to_numpy()
     s = scores_of(model, run, tok, texts, by_length(tok, run, texts))
     pd.DataFrame({"version_id": v.version_id, "score": s}).to_parquet(
-        path(cfg, "scores", f"{run['name']}{sfx}.parquet"), index=False)
+        path(cfg, scores_dir, f"{run['name']}{sfx}.parquet"), index=False)
     print(f"{run['name']}: scored {len(v)} versions of {splits}")
 
 
@@ -426,15 +428,16 @@ def main():
         p.add_argument("--max-steps", type=int, help="stop after this many optimizer steps, checkpointed")
         p.add_argument("--score", nargs="+", metavar="SPLIT", help="score these splits with the run's model.pt")
         p.add_argument("--epoch", type=int, help="with --score: use model_epoch<E>.pt, the best weights by epoch E")
+        p.add_argument("--versions", default="versions.parquet", help="with --score: the versions file under data_dir")
     cfg, args = cli(__doc__, args)
     runs = expand(cfg)
     if args.list:
         return print("\n".join(runs))
     run, d = runs[args.run], cfg["detector"]
     out = path(cfg, "detector", *(["smoke"] if args.smoke else []), run["name"], "x").parent
-    sents, versions = pd.read_parquet(path(cfg, "sentences.parquet")), pd.read_parquet(path(cfg, "versions.parquet"))
+    sents, versions = pd.read_parquet(path(cfg, "sentences.parquet")), pd.read_parquet(path(cfg, args.versions))
     if args.score:
-        return score(cfg, run, versions, args.score, out, args.epoch)
+        return score(cfg, run, versions, args.score, out, args.epoch, Path(args.versions).parent / "scores")
     if run["kind"] == "document":
         history = run_document(cfg, run, sents, versions, out, args.max_steps, args.smoke)
     else:
