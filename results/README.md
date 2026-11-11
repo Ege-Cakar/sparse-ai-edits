@@ -1,8 +1,8 @@
 # Results
 
-The numbers behind `report/report.tex`, as CSV. Everything except `detector_full_runs.csv` and the `pretrain_*` files
-is written by `report/make_tables.py` from the saved pipeline outputs in `data/full_pipeline/` (not in git). All
-document and sentence results are on the test split; detector selection used only the training editors' val split.
+The numbers behind the tables of `report/report.pdf`, as CSV, computed from the pipeline outputs (`data/`, not in
+git). All document and sentence results are on the test split; detector selection used only the training editors'
+val split.
 
 Definitions:
 - `group`: `human` (unedited test sentences; `p_below_a` is then the false-positive rate), `train` (the 5 training
@@ -26,6 +26,13 @@ Files:
   (median z of edited sentences).
 - `document_tests_by_source.csv`: the same for whole documents and correlated thresholds, per source, with 95% intervals
   (`_lo`, `_hi`; Wilson for rates) and the estimated within-document correlation `rho`.
+- `document_tests_null_variants.csv`: as `document_tests_by_source.csv` (whole documents, correlated thresholds,
+  ensemble and its members), for three nulls in `null_run`: `A` per-source null and per-source rho (the reported one),
+  `B` null and rho pooled over sources, `C` pooled null with per-source rho. Adds PC-adjusted (`reject_hc_pc`) and
+  innovated HC (`reject_hc_innov`).
+- `document_tests_calib_thresholds.csv`: every global test with thresholds from calib documents (the statistic ranked
+  among calib human documents of the same source and length band), per detector, source, editor and theta;
+  `n_calib_docs` is the size of that null.
 - `document_level_whole_document_scoring.csv`: released detectors scoring the whole document, with a document-level
   conformal test against calib human documents of the same source (level 0.05).
 - `detector_search.csv`: the 29-run detector search (20% of training documents), val metrics on the training editors.
