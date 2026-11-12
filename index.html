@@ -1,0 +1,668 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Who Touched My Sentence?</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400..800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #ffffff; --ink: #111111; --muted: #555555; --faint: #8a8a8a; --soft: #9e9e9e;
+  --line: #e6e6e6; --sunken: #f5f5f5; --member: #555555;
+  --accent: #b04e2f; --accent-ink: #a3462a; --accent-tint: #f7e4db; --on-accent: #ffffff;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111111; --ink: #f2f2f2; --muted: #b5b5b5; --faint: #8f8f8f; --soft: #6e6e6e;
+    --line: #2a2a2a; --sunken: #1b1b1b; --member: #cfcfcf;
+    --accent: #e27c5b; --accent-ink: #ec9070; --accent-tint: #3a251e; --on-accent: #1a120e;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111111; --ink: #f2f2f2; --muted: #b5b5b5; --faint: #8f8f8f; --soft: #6e6e6e;
+  --line: #2a2a2a; --sunken: #1b1b1b; --member: #cfcfcf;
+  --accent: #e27c5b; --accent-ink: #ec9070; --accent-tint: #3a251e; --on-accent: #1a120e;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 400 17px/1.5 "Hanken Grotesk", -apple-system, "SF Pro Text", system-ui, sans-serif; }
+main { max-width: 1080px; margin: 0 auto; padding: 0 24px 96px; }
+a { color: var(--accent-ink); text-decoration: none; }
+a:hover { text-decoration: underline; }
+nav { max-width: 1080px; margin: 0 auto; padding: 20px 24px; display: flex; justify-content: space-between; align-items: center; font-size: 15px; }
+nav .links { display: flex; gap: 24px; }
+nav b { font-weight: 650; }
+section { padding: 96px 0 0; }
+h1 { font-size: clamp(44px, 7vw, 84px); line-height: 1.02; letter-spacing: -0.035em; font-weight: 750; margin: 0; }
+h2 { font-size: clamp(28px, 4vw, 40px); letter-spacing: -0.02em; line-height: 1.1; font-weight: 650; margin: 0 0 8px; }
+.lede { color: var(--muted); font-size: 19px; margin: 0 0 32px; max-width: 640px; }
+.num { font-variant-numeric: tabular-nums; }
+.controls { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center; margin: 0 0 20px; }
+.seg { display: inline-flex; background: var(--sunken); border-radius: 999px; padding: 3px; }
+.seg button { border: 0; background: transparent; color: var(--muted); font: 600 14px/1 inherit; font-family: inherit; padding: 9px 14px; border-radius: 999px; cursor: pointer; transition: background .15s ease-out, color .15s ease-out; }
+.seg button[aria-pressed="true"] { background: var(--bg); color: var(--ink); box-shadow: 0 1px 3px #0000001f; }
+.chip { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--muted); font: 500 14px/1 inherit; font-family: inherit; padding: 8px 12px; border-radius: 999px; cursor: pointer; transition: border-color .15s ease-out, color .15s ease-out, opacity .15s; }
+.chip[aria-pressed="true"] { border-color: var(--ink); color: var(--ink); }
+.chip[aria-pressed="false"] { opacity: .55; }
+.chip svg { display: block; }
+.btn { border: 0; background: var(--ink); color: var(--bg); font: 600 14px/1 inherit; font-family: inherit; padding: 11px 18px; border-radius: 999px; cursor: pointer; }
+.btn:active { transform: scale(.98); }
+label.rng { display: inline-flex; align-items: center; gap: 12px; font-size: 15px; color: var(--muted); }
+input[type=range] { accent-color: var(--accent); width: 180px; }
+.card { border: 1px solid var(--line); border-radius: 20px; padding: 24px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+.h0 { grid-template-columns: 1fr 1.25fr; align-items: center; }
+.caption { color: var(--muted); font-size: 14px; margin-top: 12px; }
+svg text { font-family: inherit; fill: var(--muted); font-size: 13px; }
+#pgPlot { display: block; max-width: 520px; margin: 0 auto; }
+#strPlot { display: block; max-width: 440px; margin: 0 auto; }
+#docPlot, #bmPlot, #lmPlot { display: block; max-width: 880px; margin: 0 auto; }
+.panel { border: 1px solid var(--line); border-radius: 20px; padding: 24px; display: flex; flex-direction: column; gap: 16px; margin-bottom: 20px; }
+.ptitle { font-weight: 650; font-size: 19px; display: flex; align-items: center; gap: 10px; }
+.ptitle .pl { width: 26px; height: 26px; border-radius: 50%; background: var(--ink); color: var(--bg); font-size: 14px; display: inline-flex; align-items: center; justify-content: center; }
+.flowrow { display: flex; align-items: stretch; gap: 12px; }
+.node { flex: 1; min-width: 0; background: var(--sunken); border-radius: 16px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; }
+.nk { color: var(--muted); font-size: 12.5px; font-weight: 650; text-transform: uppercase; letter-spacing: .05em; }
+.nv { font-size: 38px; font-weight: 750; letter-spacing: -0.02em; line-height: 1; }
+.nd { color: var(--muted); font-size: 14px; }
+.arr { flex: none; align-self: center; width: 26px; height: 2px; background: var(--faint); position: relative; }
+.arr::after { content: ""; position: absolute; right: -2px; top: -5px; border-left: 9px solid var(--faint); border-top: 6px solid transparent; border-bottom: 6px solid transparent; }
+.pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.pill2 { font-size: 12.5px; background: var(--bg); border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; white-space: nowrap; }
+.pill2.acc { border-color: var(--accent); color: var(--accent-ink); }
+.splits { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.sp { background: var(--bg); border-radius: 10px; padding: 9px 12px; }
+.sp b { display: block; font-weight: 650; }
+.sp span { color: var(--muted); font-size: 13px; }
+.sp.cal { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.sp.cal b { color: var(--accent-ink); }
+.prompt { display: block; font: 13px/1.5 ui-monospace, "SF Mono", Menlo, monospace; background: var(--bg); border-radius: 10px; padding: 12px 14px; white-space: pre-wrap; }
+.prompt .slot { color: var(--accent-ink); }
+.ex-sent { font-size: 20px; line-height: 1.45; margin: 0; }
+.ex-sent .chg { border-radius: 4px; padding: 0 3px; }
+.ex-sent .chg.h { background: var(--line); }
+.ex-sent .chg.e { background: var(--accent-tint); color: var(--accent-ink); }
+.lab { display: flex; justify-content: space-between; align-items: center; gap: 8px; background: var(--bg); border-radius: 10px; padding: 9px 12px; font-size: 14px; }
+.lab b { font-weight: 650; white-space: nowrap; }
+.lab.acc { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.pv { font-size: 22px; font-weight: 700; color: var(--accent-ink); }
+.tip { position: fixed; pointer-events: none; z-index: 10; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font-size: 14px; line-height: 1.45; box-shadow: 0 6px 20px #00000024; opacity: 0; transition: opacity .12s; max-width: 280px; }
+.tip.on { opacity: 1; }
+.tip .k { color: var(--muted); }
+/* hero */
+.hero { display: grid; grid-template-columns: 1.25fr 1fr; gap: 56px; align-items: center; padding-top: 64px; }
+.hero .sub { color: var(--muted); font-size: 21px; margin: 20px 0 24px; max-width: 520px; }
+.cta { display: flex; flex-wrap: wrap; gap: 12px; margin: 0 0 36px; }
+.btn-link { display: inline-flex; align-items: center; background: var(--ink); color: var(--bg); font-weight: 600; font-size: 15px; padding: 11px 18px; border-radius: 999px; }
+.btn-link:hover { text-decoration: none; opacity: .88; }
+.btn-link.ghost { background: transparent; color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--line); }
+.doc { border: 1px solid var(--line); border-radius: 24px; padding: 32px; display: flex; flex-direction: column; gap: 13px; }
+.doc .ln { height: 10px; border-radius: 5px; background: var(--line); transition: background .35s ease-out, transform .35s ease-out; transform-origin: left; }
+.doc .ln.on { background: var(--accent); }
+.big { display: flex; gap: 40px; margin-top: 28px; }
+.big .v { font-size: 56px; font-weight: 750; letter-spacing: -0.03em; line-height: 1; }
+.big .v.ours { color: var(--accent-ink); }
+.big .l { color: var(--muted); font-size: 14px; margin-top: 6px; }
+/* steps */
+.steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+.step { border: 1px solid var(--line); border-radius: 20px; padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+.step .n { color: var(--accent-ink); font-weight: 700; font-size: 14px; }
+.step .t { font-weight: 650; font-size: 18px; line-height: 1.25; }
+.step .d { color: var(--muted); font-size: 14px; }
+.step .viz { background: var(--sunken); border-radius: 12px; padding: 12px; height: 104px; display: flex; align-items: center; justify-content: center; }
+/* playground */
+.pg { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+.strip { display: grid; gap: 4px; margin: 4px 0 16px; }
+.cell { aspect-ratio: 1; border-radius: 5px; position: relative; }
+.cell.flag { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent); }
+.cell.edit::after { content: ""; position: absolute; left: 20%; right: 20%; bottom: -7px; height: 3px; border-radius: 2px; background: var(--ink); }
+.verdict { display: inline-block; font-weight: 650; border-radius: 999px; padding: 8px 16px; font-size: 15px; }
+.verdict.yes { background: var(--accent); color: var(--on-accent); }
+.verdict.no { background: var(--sunken); color: var(--muted); }
+.stats { display: flex; gap: 32px; margin: 18px 0 8px; flex-wrap: wrap; }
+.stats .v { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; }
+.stats .l { color: var(--muted); font-size: 13px; }
+.key { display: flex; gap: 18px; flex-wrap: wrap; color: var(--muted); font-size: 13px; margin-top: 8px; }
+.key span { display: inline-flex; align-items: center; gap: 6px; }
+/* bars */
+.bars { display: grid; grid-template-columns: 210px 1fr 64px; gap: 8px 14px; align-items: center; }
+.bars .g { grid-column: 1 / -1; color: var(--muted); font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; margin-top: 12px; }
+.bars .nm { font-size: 15px; }
+.bars .nm.ours { font-weight: 650; }
+.track { position: relative; height: 22px; }
+.bar { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 0 6px 6px 0; transition: width .45s cubic-bezier(.2,.7,.2,1); }
+.mark { position: absolute; top: -6px; bottom: -6px; width: 0; border-left: 2px dashed var(--ink); opacity: .45; transition: left .45s cubic-bezier(.2,.7,.2,1); }
+.bars .val { font-size: 15px; text-align: right; }
+/* matrix */
+.flow { display: flex; flex-direction: column; gap: 10px; font-size: 15px; }
+.flow .box { border: 1.5px solid var(--faint); border-radius: 14px; padding: 12px 16px; font-weight: 600; width: 200px; flex: none; }
+.flow .row { display: flex; align-items: center; gap: 12px; }
+.flow .arrow { color: var(--faint); font-size: 13px; white-space: nowrap; }
+.flow .pill { border-radius: 999px; padding: 7px 14px; background: var(--sunken); font-weight: 600; white-space: nowrap; }
+.flow .pill.acc { background: var(--accent); color: var(--on-accent); }
+table.mx { width: 100%; border-collapse: separate; border-spacing: 4px; font-size: 15px; }
+table.mx th { color: var(--muted); font-weight: 600; font-size: 13px; text-align: right; padding: 4px 10px; }
+table.mx th:first-child { text-align: left; }
+table.mx td { padding: 12px 10px; border-radius: 8px; text-align: right; }
+table.mx td:first-child { text-align: left; padding-left: 0; }
+table.mx td.ok { font-weight: 700; box-shadow: inset 0 0 0 1.5px var(--ink); }
+footer { max-width: 1080px; margin: 0 auto; padding: 64px 24px 48px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 16px; color: var(--muted); font-size: 15px; border-top: 1px solid var(--line); }
+@media (max-width: 980px) { .pg { grid-template-columns: 1fr; } }
+@media (max-width: 860px) {
+  .flowrow { flex-direction: column; }
+  .arr { width: 2px; height: 22px; }
+  .arr::after { right: -5px; top: auto; bottom: -2px; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 9px solid var(--faint); border-bottom: 0; }
+  .hero, .pg, .grid2 { grid-template-columns: 1fr; }
+  .steps { grid-template-columns: 1fr 1fr; }
+  .bars { grid-template-columns: 130px 1fr 52px; }
+  .bars .nm { font-size: 13px; }
+  section { padding-top: 72px; }
+}
+@media (max-width: 480px) {
+  .flow .box { width: 140px; padding: 10px 12px; }
+  .flow .arrow { white-space: normal; width: 64px; }
+  main, nav, footer { padding-left: 16px; padding-right: 16px; }
+  .steps { grid-template-columns: 1fr; }
+  .big .v { font-size: 44px; }
+  input[type=range] { width: 140px; }
+}
+</style>
+</head>
+<body>
+<nav><b>Who Touched My Sentence?</b><span class="links"><a href="https://github.com/Ege-Cakar/sparse-ai-edits/blob/main/report/report.pdf">Paper</a><a href="https://github.com/Ege-Cakar/sparse-ai-edits">GitHub</a></span></nav>
+<main>
+
+<section class="hero" aria-label="Overview">
+  <div>
+    <h1>Who touched my sentence?</h1>
+    <p class="sub">Finding a few AI-edited sentences in a human document, with sparse inference.</p>
+    <div class="cta"><a class="btn-link" href="https://github.com/Ege-Cakar/sparse-ai-edits">GitHub repository</a><a class="btn-link ghost" href="https://github.com/Ege-Cakar/sparse-ai-edits/blob/main/report/report.pdf">Paper (PDF)</a></div>
+    <label class="rng">Sparsity θ <input id="theta" type="range" min="1" max="9" step="1" value="1" aria-label="Sparsity theta"> <b class="num" id="thetaVal">0.1</b></label>
+    <div class="big">
+      <div><div class="v ours num" id="heroOurs">92%</div><div class="l">flagged by our test</div></div>
+      <div><div class="v num" id="heroEl">53%</div><div class="l">flagged by EditLens</div></div>
+    </div>
+    <p class="caption">Edited test documents flagged at the 5% level, training editors.</p>
+  </div>
+  <div>
+    <div class="doc" id="doc" aria-label="A 16-sentence document with its AI-edited sentences highlighted"></div>
+    <p class="caption num" id="docCap">12 of 16 sentences edited</p>
+  </div>
+</section>
+
+<section aria-labelledby="setup-h">
+  <h2 id="setup-h">How it is built</h2>
+  <p class="lede">Human text, edited one sentence at a time, then detectors whose scores become exact p-values.</p>
+  <div class="panel">
+    <div class="ptitle"><span class="pl">a</span> Building the data</div>
+    <div class="flowrow">
+      <div class="node">
+        <div class="nk">Human documents</div>
+        <div class="nv num">313k</div>
+        <div class="nd">sentences from 8 sources, all written in 2020 or earlier</div>
+        <div class="pills"><span class="pill2">FineWeb-Edu</span><span class="pill2">peS2o</span><span class="pill2">PERSUADE</span><span class="pill2">ELLIPSE</span><span class="pill2">XSum</span><span class="pill2">OpenReview</span><span class="pill2">Enron</span><span class="pill2">WritingPrompts</span></div>
+      </div>
+      <div class="arr" aria-hidden="true"></div>
+      <div class="node">
+        <div class="nk">Split by document</div>
+        <div class="splits">
+          <div class="sp"><b>train</b><span>15k per source</span></div>
+          <div class="sp"><b>val</b><span>1.5k per source</span></div>
+          <div class="sp cal"><b>calib</b><span>15k, never edited</span></div>
+          <div class="sp"><b>test</b><span>7.5k per source</span></div>
+        </div>
+        <div class="nd">calib is the human reference for p-values</div>
+      </div>
+      <div class="arr" aria-hidden="true"></div>
+      <div class="node">
+        <div class="nk">LLM editors</div>
+        <div class="nv num">6 × 2</div>
+        <div class="nd">models × prompts, one sentence per request, whole document as context</div>
+        <div class="pills"><span class="pill2">gpt-oss-120b</span><span class="pill2">Gemma 4 31B</span><span class="pill2">GPT-6 Luna</span><span class="pill2">Claude Haiku 5.5</span><span class="pill2">GLM-5.3 Flash</span><span class="pill2 acc">Qwen3.5, held out</span></div>
+      </div>
+    </div>
+    <div class="node">
+      <div class="controls" style="margin:0"><span class="nk">Prompt</span><span class="seg" id="promptSeg"></span></div>
+      <code class="prompt" id="promptText"></code>
+    </div>
+    <div class="node">
+      <div class="controls" style="margin:0"><span class="nk">Example</span><span class="seg" id="exSeg"></span><span class="nd">edit rate r = 0.36 (5 word edits / 14 words)</span></div>
+      <p class="ex-sent" id="exSent"></p>
+      <div class="nd">2.1M accepted edits in total, up to 12 versions per sentence</div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="ptitle"><span class="pl">b</span> One sentence: detector score to p-value</div>
+    <div class="flowrow">
+      <div class="node" style="flex:0.8">
+        <div class="nk">Training data</div>
+        <div class="lab"><span>human train sentence</span><b>label 0</b></div>
+        <div class="lab acc"><span>its edited versions</span><b>label 1</b></div>
+        <div class="nd">120k human and 1.08M edited sentences, class-weighted loss</div>
+      </div>
+      <div class="arr" aria-hidden="true"></div>
+      <div class="node" style="flex:0.9">
+        <div class="nk">Fine-tuned classifiers</div>
+        <div class="pills"><span class="pill2">Llama-3.1-8B</span><span class="pill2">OLMo-3-7B</span><span class="pill2">OLMo-3-32B</span><span class="pill2">DeBERTa-v3-large</span></div>
+        <div class="nd">LoRA on the decoders. Each sentence is scored alone; the ensemble averages standardized scores.</div>
+      </div>
+      <div class="arr" aria-hidden="true"></div>
+      <div class="node" style="flex:1.6">
+        <div class="nk">Score to p-value</div>
+        <svg id="pvPlot" viewBox="0 0 440 170" width="100%" role="img" aria-label="Scores of human calibration sentences with the test sentence's score marked"></svg>
+        <div class="controls" style="margin:0"><label class="rng">score s(x) <input id="pvS" type="range" min="-300" max="450" value="175"></label><span class="pv num" id="pvVal">p = 0.040</span></div>
+        <div class="nd">p = share of human calib scores (same source and length bin) above s(x). Exactly uniform when x is human. Illustration.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section aria-labelledby="how-h">
+  <h2 id="how-h">From sentences to a document test</h2>
+  <p class="lede">Score each sentence alone, turn it into an exact p-value, combine with Higher Criticism.</p>
+  <div class="steps">
+    <div class="step"><span class="n">1</span><span class="t">Score each sentence</span>
+      <div class="viz"><svg width="150" height="80" viewBox="0 0 150 80" aria-hidden="true"><g id="s1"></g></svg></div>
+      <span class="d">Four fine-tuned classifiers, averaged.</span></div>
+    <div class="step"><span class="n">2</span><span class="t">Score to p-value</span>
+      <div class="viz"><svg width="150" height="80" viewBox="0 0 150 80" aria-hidden="true"><g id="s2"></g></svg></div>
+      <span class="d">Rank among human sentences of the same source and length.</span></div>
+    <div class="step"><span class="n">3</span><span class="t">Higher Criticism</span>
+      <div class="viz"><svg width="150" height="80" viewBox="0 0 150 80" aria-hidden="true"><g id="s3"></g></svg></div>
+      <span class="d">Do the smallest p-values fall below uniform?</span></div>
+    <div class="step"><span class="n">4</span><span class="t">Decide, then locate</span>
+      <div class="viz"><svg width="150" height="80" viewBox="0 0 150 80" aria-hidden="true"><g id="s4"></g></svg></div>
+      <span class="d">Threshold allows for correlation; BH flags sentences.</span></div>
+  </div>
+</section>
+
+<section aria-labelledby="pg-h">
+  <h2 id="pg-h">Try Higher Criticism</h2>
+  <p class="lede">A simulated document: n independent sentences, m of them edited with signal μ.</p>
+  <div class="controls">
+    <span class="seg" id="pgN"></span>
+    <label class="rng">edited m <input id="pgM" type="range" min="0" max="16" value="2"> <b class="num" id="pgMv">2</b></label>
+    <label class="rng">signal μ <input id="pgMu" type="range" min="0" max="50" value="30"> <b class="num" id="pgMuv">3.0</b></label>
+    <button class="btn" id="pgNew">New document</button>
+  </div>
+  <div class="pg">
+    <div class="card">
+      <div class="strip" id="strip"></div>
+      <div class="key"><span><i style="width:14px;height:14px;border-radius:4px;background:var(--ink);opacity:.8"></i>darker: smaller p</span><span><i style="width:14px;height:3px;border-radius:2px;background:var(--ink)"></i>truly edited</span><span><i style="width:12px;height:12px;border-radius:3px;box-shadow:0 0 0 2px var(--accent)"></i>flagged by BH</span></div>
+      <div class="stats">
+        <div><div class="v num" id="pgHc">0</div><div class="l">HC</div></div>
+        <div><div class="v num" id="pgTh">0</div><div class="l">5% threshold</div></div>
+        <div><div class="v num" id="pgBh">0</div><div class="l">BH flags (q = 0.1)</div></div>
+      </div>
+      <span class="verdict no" id="pgVerdict">Looks human</span>
+    </div>
+    <div class="card">
+      <svg id="pgPlot" viewBox="0 0 460 280" width="100%" role="img" aria-label="Sorted p-values against the uniform line"></svg>
+    </div>
+  </div>
+</section>
+
+<section aria-labelledby="sent-h">
+  <h2 id="sent-h">Sentence level</h2>
+  <p class="lede">Share of edited sentences caught at a fixed false-positive rate.</p>
+  <div class="controls"><span class="seg" id="sentFpr"></span><span class="seg" id="sentEd"></span></div>
+  <div class="bars" id="sentBars"></div>
+  <p class="caption">Dashed line: a detector with no signal. 545k edited and 60k human test sentences.</p>
+</section>
+
+<section aria-labelledby="doc-h">
+  <h2 id="doc-h">Document level</h2>
+  <p class="lede">Share of edited documents flagged at the 5% level, by how sparse the edits are.</p>
+  <div class="controls"><span class="seg" id="docEd"></span></div>
+  <div class="controls" id="docChips"></div>
+  <svg id="docPlot" viewBox="0 0 760 400" width="100%" role="img" aria-label="Detection rate versus sparsity theta"></svg>
+  <p class="caption">1,301 test documents of 16+ sentences; m = n<sup>1−θ</sup> sentences edited. Human documents are flagged 4 to 6% of the time.</p>
+</section>
+
+<section aria-labelledby="str-h">
+  <h2 id="str-h">What makes an edit visible</h2>
+  <p class="lede">Ensemble, 1% false-positive rate.</p>
+  <div class="grid2">
+    <div class="card"><b>By edit rate r</b><svg id="strPlot" viewBox="0 0 380 260" width="100%" role="img" aria-label="Detection rate by edit rate"></svg></div>
+    <div class="card"><b>By editor and prompt</b> <span class="caption" style="margin:0">accent: held-out editor</span><div class="bars" id="edBars" style="grid-template-columns:150px 1fr 48px;margin-top:8px"></div></div>
+  </div>
+</section>
+
+<section aria-labelledby="bm-h">
+  <h2 id="bm-h">Public benchmarks</h2>
+  <p class="lede">Share flagged at a 5% false-alarm rate, each calibrated on its own human texts.</p>
+  <div class="controls" id="bmKey"></div>
+  <svg id="bmPlot" viewBox="0 0 760 400" width="100%" role="img" aria-label="Detection rates on seven public benchmarks"></svg>
+  <p class="caption">MELD and GPTTrace v8s were trained on RAID.</p>
+</section>
+
+<section aria-labelledby="h0-h">
+  <h2 id="h0-h">Edited, or fully generated?</h2>
+  <p class="lede">A second test of “every sentence is AI”, with the same detectors.</p>
+  <div class="grid2 h0">
+    <div class="flow">
+      <div class="row"><div class="box">Every sentence human?</div><span class="arrow">not rejected →</span><span class="pill">Human</span></div>
+      <div class="row"><span class="arrow" style="padding-left:16px">↓ rejected</span></div>
+      <div class="row"><div class="box">Every sentence AI?</div><span class="arrow">not rejected →</span><span class="pill">Fully AI</span></div>
+      <div class="row"><span class="arrow" style="padding-left:16px">↓ rejected</span></div>
+      <div class="row"><span class="pill acc">AI-edited</span></div>
+    </div>
+    <div>
+      <div class="controls"><span class="seg" id="mxEd"></span></div>
+      <table class="mx num" id="mx"></table>
+      <p class="caption">Rows: true document. Outlined: correct label.</p>
+    </div>
+  </div>
+</section>
+
+<section aria-labelledby="lm-h">
+  <h2 id="lm-h">Training on AI-edited text</h2>
+  <p class="lede">Partly edited data leaves perplexity flat but shifts what the model prefers.</p>
+  <div class="controls"><span class="seg" id="lmModel"></span><button class="chip" id="lmW" aria-pressed="false">Show weighting</button></div>
+  <svg id="lmPlot" viewBox="0 0 760 420" width="100%" role="img" aria-label="Perplexity versus preference for AI-edited text, per training arm"></svg>
+  <p class="caption">Hollow points: loss weight 1 − r on edited sentences, or edited sentences dropped. LoRA continued pretraining, mean of 3 seeds. Δ: per-token log-probability of the AI-edited sentence minus its human original.</p>
+</section>
+
+</main>
+<footer><span>Ege Çakar, Rui Huang, Duy Thuc Nguyen</span><span><a href="https://github.com/Ege-Cakar/sparse-ai-edits/blob/main/report/report.pdf">Paper (PDF)</a> · <a href="https://github.com/Ege-Cakar/sparse-ai-edits">Code and data</a></span></footer>
+<div class="tip" id="tip" role="tooltip"></div>
+
+<script>
+const D = {"sent":{"Binoculars (Falcon-7B)":{"human":[0.001,0.0096,0.0481],"qwen":[0.0017,0.0135,0.0625],"train":[0.0025,0.0173,0.0736]},"Binoculars (Llama-3-8B)":{"human":[0.0011,0.0106,0.0519],"qwen":[0.0021,0.0177,0.0778],"train":[0.0026,0.0208,0.0878]},"DeBERTa-v3-large":{"human":[0.0009,0.0101,0.049],"qwen":[0.1209,0.3156,0.5645],"train":[0.1701,0.341,0.5729]},"EditLens (3B)":{"human":[0.0013,0.0108,0.0513],"qwen":[0.0219,0.0976,0.2509],"train":[0.0176,0.0866,0.2428]},"Ensemble":{"human":[0.0011,0.0105,0.0495],"qwen":[0.1469,0.3615,0.6074],"train":[0.1988,0.3865,0.6116]},"Fast-DetectGPT (Falcon-7B)":{"human":[0.0011,0.0095,0.0478],"qwen":[0.0013,0.0122,0.0576],"train":[0.0018,0.0149,0.0675]},"Fast-DetectGPT (Llama-3-8B)":{"human":[0.0014,0.0106,0.0514],"qwen":[0.002,0.0154,0.0732],"train":[0.0022,0.0183,0.0825]},"GPTTrace Ettin-150M":{"human":[0.001,0.0097,0.0503],"qwen":[0.0036,0.0199,0.0795],"train":[0.003,0.0187,0.0761]},"GPTTrace v8s (1B)":{"human":[0.0009,0.01,0.0504],"qwen":[0.0105,0.0475,0.1413],"train":[0.0571,0.0935,0.1796]},"Llama-3.1-8B":{"human":[0.0008,0.0102,0.0504],"qwen":[0.1028,0.2952,0.5456],"train":[0.1685,0.3411,0.5706]},"Log-likelihood (Falcon-7B)":{"human":[0.0008,0.0091,0.0471],"qwen":[0.0013,0.0142,0.0748],"train":[0.0013,0.017,0.0876]},"Log-likelihood (Llama-3-8B)":{"human":[0.0009,0.0099,0.049],"qwen":[0.0013,0.0143,0.077],"train":[0.0015,0.0174,0.0904]},"OLMo-3-32B":{"human":[0.0012,0.0111,0.0499],"qwen":[0.1399,0.352,0.5965],"train":[0.1929,0.3768,0.599]},"OLMo-3-7B":{"human":[0.001,0.0102,0.0496],"qwen":[0.1082,0.3021,0.5582],"train":[0.1619,0.3312,0.5617]},"desklib v1.01":{"human":[0.0008,0.0102,0.0493],"qwen":[0.0028,0.0236,0.0858],"train":[0.0024,0.0217,0.0831]}},"doc":{"Binoculars (Falcon-7B)":{"train":[0.1022,0.0837,0.074,0.065,0.0602,0.0597,0.0566,0.0549,0.0526],"qwen":[0.0675,0.063,0.0576,0.0563,0.0584,0.0526,0.0505,0.051,0.0501],"type1":0.0497},"Binoculars (Llama-3-8B)":{"train":[0.1276,0.1055,0.0897,0.0767,0.0739,0.0685,0.0659,0.0656,0.0615],"qwen":[0.1045,0.0926,0.0815,0.0723,0.0688,0.0688,0.0626,0.0619,0.0588],"type1":0.0584},"DeBERTa-v3-large":{"train":[0.9015,0.8297,0.7453,0.641,0.5491,0.4635,0.3786,0.322,0.2068],"qwen":[0.9235,0.8536,0.7575,0.6322,0.5319,0.4362,0.3505,0.2932,0.1791],"type1":0.0407},"EditLens (3B)":{"train":[0.458,0.3594,0.2791,0.2172,0.1729,0.141,0.1184,0.1043,0.0836],"qwen":[0.5019,0.3855,0.3082,0.2356,0.1849,0.1549,0.1372,0.1107,0.0815],"type1":0.0584},"Ensemble":{"train":[0.9178,0.8523,0.7764,0.684,0.5895,0.4957,0.4145,0.3457,0.2235],"qwen":[0.9327,0.8724,0.7779,0.6683,0.5634,0.4662,0.3762,0.3051,0.1895],"type1":0.0446},"Fast-DetectGPT (Falcon-7B)":{"train":[0.0887,0.0748,0.0665,0.0627,0.059,0.0573,0.0563,0.0535,0.0517],"qwen":[0.0671,0.0584,0.0592,0.0497,0.058,0.0543,0.0514,0.0522,0.0497],"type1":0.0505},"Fast-DetectGPT (Llama-3-8B)":{"train":[0.1062,0.0863,0.0775,0.0686,0.0661,0.063,0.0618,0.0604,0.0576],"qwen":[0.0934,0.0761,0.068,0.0657,0.0603,0.0619,0.0588,0.0607,0.0565],"type1":0.0538},"GPTTrace Ettin-150M":{"train":[0.1272,0.1077,0.0916,0.0827,0.0746,0.0714,0.0663,0.0648,0.0621],"qwen":[0.1449,0.1226,0.1068,0.0872,0.078,0.0711,0.0688,0.0657,0.0615],"type1":0.0584},"GPTTrace v8s (1B)":{"train":[0.3545,0.3038,0.264,0.2241,0.1942,0.167,0.143,0.1245,0.0927],"qwen":[0.2948,0.2171,0.1737,0.1395,0.1088,0.0957,0.0842,0.0703,0.0596],"type1":0.0492},"Llama-3.1-8B":{"train":[0.8871,0.8101,0.7204,0.6264,0.5322,0.4439,0.3746,0.3125,0.202],"qwen":[0.8897,0.7944,0.6868,0.5742,0.4746,0.3732,0.3028,0.2513,0.1576],"type1":0.0477},"Log-likelihood (Falcon-7B)":{"train":[0.0983,0.0785,0.0635,0.0574,0.0536,0.0505,0.0473,0.0465,0.0447],"qwen":[0.0708,0.0592,0.0543,0.0481,0.0514,0.0497,0.0468,0.0427,0.0435],"type1":0.0439},"Log-likelihood (Llama-3-8B)":{"train":[0.1091,0.0838,0.07,0.0604,0.0548,0.0525,0.0503,0.0487,0.0483],"qwen":[0.0842,0.0665,0.0592,0.0546,0.0534,0.0534,0.0496,0.0457,0.0473],"type1":0.0461},"OLMo-3-32B":{"train":[0.909,0.8443,0.7677,0.6713,0.5812,0.4905,0.4128,0.3471,0.2243],"qwen":[0.9266,0.8678,0.769,0.6706,0.5546,0.4654,0.3755,0.3005,0.1895],"type1":0.0538},"OLMo-3-7B":{"train":[0.8905,0.8095,0.723,0.6226,0.5249,0.4314,0.358,0.2976,0.189],"qwen":[0.9105,0.8267,0.7187,0.6003,0.485,0.3705,0.3101,0.2479,0.1553],"type1":0.0484},"desklib v1.01":{"train":[0.137,0.1121,0.0929,0.0814,0.0737,0.0679,0.0644,0.0607,0.0571],"qwen":[0.1441,0.123,0.1007,0.0915,0.078,0.0711,0.063,0.0615,0.0569],"type1":0.053}},"whole":{"EditLens (3B)":{"train":[0.5346,0.3679,0.2487,0.1713,0.1253,0.0988,0.0811,0.0724,0.0575],"qwen":[0.565,0.3616,0.2321,0.1537,0.1084,0.0865,0.0673,0.0615,0.0534],"type1":0.05},"GPTTrace Ettin-150M":{"train":[0.0862,0.0689,0.0603,0.0527,0.0542,0.0523,0.0506,0.0511,0.052],"qwen":[0.0819,0.073,0.0615,0.0592,0.053,0.0503,0.0523,0.0592,0.05],"type1":0.0553},"GPTTrace v8s (1B)":{"train":[0.3861,0.2709,0.2115,0.1653,0.1343,0.1116,0.0967,0.0893,0.0729],"qwen":[0.2606,0.1537,0.1018,0.0834,0.0703,0.0626,0.0603,0.0607,0.0603],"type1":0.0546},"desklib v1.01":{"train":[0.3481,0.2418,0.1782,0.1284,0.1095,0.0906,0.0798,0.0725,0.0634],"qwen":[0.3428,0.2191,0.1483,0.1149,0.0876,0.078,0.063,0.0661,0.0546],"type1":0.0507}},"editors":{"claude-haiku-5.5":0.4167,"claude-haiku-5.5-light":0.2423,"gemma-4-31b":0.4486,"gemma-4-31b-light":0.2577,"glm-5.3-flash":0.2831,"glm-5.3-flash-light":0.191,"gpt-6-luna":0.4379,"gpt-6-luna-light":0.3131,"gpt-oss-120b":0.6612,"gpt-oss-120b-light":0.5765,"human":0.0105,"qwen3.5-122b":0.4253,"qwen3.5-122b-light":0.2947},"strength":[["(0.0, 0.05]",0.225,12391],["(0.05, 0.1]",0.1897,53355],["(0.1, 0.2]",0.2481,121871],["(0.2, 0.3]",0.3367,110141],["(0.3, 0.5]",0.4428,196830],["(0.5, 1.0]",0.5333,148440],["(1.0, inf]",0.3192,11259]]};
+
+// Report tables (third-party benchmarks, three-way labels, continued pretraining).
+const BENCH = [
+  ["OpAI-Bench", "edits sentence by sentence", [0.70, 0.59, 0.64, 0.50]],
+  ["APT-Eval", "polishes the whole text", [0.58, 0.48, 0.55, 0.35]],
+  ["PASTED", "paraphrases spans", [0.38, 0.33, 0.36, 0.32]],
+  ["Peer reviews", "polishes the whole review", [0.99, 0.97, 0.99, 0.96]],
+  ["AITDNA", "co-writes with a person", [0.87, 0.90, 0.92, 0.81]],
+  ["EditLens test set", "open-ended rewrites", [0.74, 0.84, 0.83, 0.79]],
+  ["RAID sample", "writes the whole text", [0.35, 0.77, 1.00, 1.00]],
+];
+const MX = {
+  fixed: [["Human", [0.961, 0.003, 0.036], 0], ["Fully AI, 4 generators", [0.004, 0.949, 0.047], 1], ["Fully AI, held-out Qwen", [0.008, 0.870, 0.121], 1]],
+  train: [["AI-edited, θ = 0.1", [0.088, 0.048, 0.865], 2], ["AI-edited, θ = 0.5", [0.425, 0.005, 0.570], 2], ["AI-edited, θ = 0.9", [0.788, 0.003, 0.209], 2]],
+  qwen: [["AI-edited, θ = 0.1", [0.073, 0.050, 0.877], 2], ["AI-edited, θ = 0.5", [0.450, 0.004, 0.546], 2], ["AI-edited, θ = 0.9", [0.824, 0.003, 0.173], 2]],
+};
+// [perplexity, Δ] per arm, from the report's continued-pretraining table.
+const LM = {
+  "Pythia-1B": {base: [16.68, .262], human: [15.18, .207], mix: [15.23, .245], mixS: [15.22, .230], mixM: [15.24, .202], h1: [15.42, .209], all: [16.07, .382], allS: [15.98, .364], allM: [16.64, .224], fresh: [14.79, .207]},
+  "Pythia-6.9B": {base: [13.22, .250], human: [11.82, .195], mix: [11.85, .239], mixS: [11.85, .222], mixM: [11.86, .190], h1: [11.99, .198], all: [12.52, .377], allS: [12.44, .358], allM: [12.98, .215], fresh: [11.51, .192]},
+  "OLMo-2-1B": {base: [15.52, .264], human: [12.24, .193], mix: [12.27, .239], mixS: [12.26, .223], mixM: [12.28, .191], h1: [12.41, .202], all: [12.93, .383], allS: [12.85, .363], allM: [13.39, .211], fresh: [12.04, .195]},
+};
+
+const $ = s => document.querySelector(s);
+const NS = "http://www.w3.org/2000/svg";
+const S = (tag, a = {}, parent) => { const e = document.createElementNS(NS, tag); for (const k in a) e.setAttribute(k, a[k]); if (parent) parent.appendChild(e); return e; };
+const H = (tag, a = {}, parent, text) => { const e = document.createElement(tag); for (const k in a) e.setAttribute(k, a[k]); if (text != null) e.textContent = text; if (parent) parent.appendChild(e); return e; };
+const pct = (v, d = 1) => (100 * v).toFixed(d) + "%";
+const THETAS = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9];
+
+const tip = $("#tip");
+function showTip(html, ev) {
+  tip.innerHTML = html; tip.classList.add("on");
+  const r = tip.getBoundingClientRect(), x = Math.min(ev.clientX + 14, innerWidth - r.width - 8), y = Math.min(ev.clientY + 14, innerHeight - r.height - 8);
+  tip.style.left = x + "px"; tip.style.top = y + "px";
+}
+const hideTip = () => tip.classList.remove("on");
+addEventListener("scroll", hideTip, {passive: true});
+
+function seg(el, opts, value, onChange) {
+  const btns = opts.map(([v, label]) => { const b = H("button", {"aria-pressed": String(v === value)}, el, label); b.onclick = () => { btns.forEach(x => x.setAttribute("aria-pressed", String(x === b))); onChange(v); }; return b; });
+}
+
+// Hero: a 16-sentence document; m = round(16^(1-θ)) sentences edited.
+(() => {
+  const widths = [96, 88, 92, 100, 74, 90, 97, 69, 93, 85, 99, 80, 91, 72, 95, 58];
+  const order = [5, 12, 1, 9, 14, 3, 7, 10, 0, 15, 4, 11, 2, 8, 13, 6];
+  const lines = widths.map(w => { const d = H("div", {class: "ln"}, $("#doc")); d.style.width = w + "%"; return d; });
+  const update = () => {
+    const k = +$("#theta").value - 1, th = THETAS[k], m = Math.round(16 ** (1 - th));
+    const on = new Set(order.slice(0, m));
+    lines.forEach((l, i) => l.classList.toggle("on", on.has(i)));
+    $("#thetaVal").textContent = th.toFixed(1);
+    $("#heroOurs").textContent = pct(D.doc.Ensemble.train[k], 0);
+    $("#heroEl").textContent = pct(D.whole["EditLens (3B)"].train[k], 0);
+    $("#docCap").textContent = `${m} of 16 sentences edited`;
+  };
+  $("#theta").addEventListener("input", update); update();
+})();
+
+// Step icons.
+(() => {
+  const g1 = $("#s1"); [[34, 1], [70, 0], [22, 1], [48, 0], [18, 1]].forEach(([w, c], i) => { S("rect", {x: 0, y: 4 + i * 15, width: 70, height: 7, rx: 3.5, style: "fill:var(--line)"}, g1); S("rect", {x: 78, y: 4 + i * 15, width: w, height: 7, rx: 3.5, style: `fill:${c ? "var(--faint)" : "var(--accent)"}`}, g1); });
+  const g2 = $("#s2"); [8, 20, 40, 58, 68, 60, 42, 25, 14, 7, 3].forEach((h, i) => S("rect", {x: 4 + i * 13, y: 74 - h, width: 10, height: h, rx: 2, style: `fill:${i >= 8 ? "var(--accent-tint)" : "var(--line)"}`}, g2));
+  S("line", {x1: 107, y1: 2, x2: 107, y2: 76, style: "stroke:var(--accent);stroke-width:3;stroke-linecap:round"}, g2);
+  const g3 = $("#s3"); S("line", {x1: 4, y1: 76, x2: 146, y2: 4, style: "stroke:var(--faint);stroke-width:1.5;stroke-dasharray:4 4"}, g3);
+  [0.001, 0.004, 0.12, 0.25, 0.41, 0.58, 0.77, 0.93].forEach((p, i) => S("circle", {cx: 4 + (i + 1) * 17, cy: 76 - 72 * p, r: 4.5, style: `fill:${i < 2 ? "var(--accent)" : "var(--faint)"}`}, g3));
+  const g4 = $("#s4"); [0, 1, 0, 0, 1, 0].forEach((f, i) => { S("rect", {x: 20, y: 4 + i * 12.5, width: 100, height: 7, rx: 3.5, style: `fill:${f ? "var(--accent)" : "var(--line)"}`}, g4); if (f) S("circle", {cx: 132, cy: 7.5 + i * 12.5, r: 4, style: "fill:var(--ink)"}, g4); });
+})();
+
+// Higher Criticism playground (Gaussian simulation, independent sentences).
+const Phi_c = z => { const x = Math.abs(z) / Math.SQRT2, t = 1 / (1 + 0.5 * x);
+  const r = t * Math.exp(-x * x - 1.26551223 + t * (1.00002368 + t * (0.37409196 + t * (0.09678418 + t * (-0.18628806 + t * (0.27886807 + t * (-1.13520398 + t * (1.48851587 + t * (-0.82215223 + t * 0.17087277)))))))));
+  return z >= 0 ? r / 2 : 1 - r / 2; };
+const gauss = () => { let u = 0; while (!u) u = Math.random(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * Math.random()); };
+function hc(sorted) {   // HC with alpha0 = 1/2
+  const n = sorted.length; let best = -Infinity;
+  for (let i = 1; i <= Math.floor(n / 2); i++) { const p = Math.max(sorted[i - 1], 1e-300); best = Math.max(best, Math.sqrt(n) * (i / n - p) / Math.sqrt(p * (1 - p))); }
+  return best;
+}
+const thrCache = {};
+function threshold(n) {   // 95% quantile of HC over 20,000 human documents of n independent sentences
+  if (!thrCache[n]) { const v = new Float64Array(20000), p = new Float64Array(n);
+    for (let r = 0; r < v.length; r++) { for (let j = 0; j < n; j++) p[j] = Math.random(); p.sort(); v[r] = hc(p); }
+    v.sort(); thrCache[n] = v[Math.floor(0.95 * v.length)]; }
+  return thrCache[n];
+}
+const pg = {n: 32, m: 2, mu: 3.0, z: null, edited: null};
+function pgDraw() {
+  const idx = [...Array(pg.n).keys()].sort(() => Math.random() - 0.5);
+  pg.edited = new Set(idx.slice(0, pg.m)); pg.z = Array.from({length: pg.n}, gauss); pgRender();
+}
+function pgRender() {
+  const {n} = pg, p = pg.z.map((z, j) => Phi_c(z + (pg.edited.has(j) ? pg.mu : 0)));
+  const order = [...p.keys()].sort((a, b) => p[a] - p[b]), sorted = order.map(j => p[j]);
+  let k = 0; sorted.forEach((v, i) => { if (v <= 0.1 * (i + 1) / n) k = i + 1; });
+  const flagged = new Set(order.slice(0, k)), stat = hc(sorted), th = threshold(n), rej = stat > th;
+  const strip = $("#strip"); strip.innerHTML = ""; strip.style.gridTemplateColumns = `repeat(${n <= 16 ? 16 : n <= 32 ? 16 : 16}, 1fr)`;
+  p.forEach((v, j) => { const a = Math.min(1, -Math.log10(v) / 4); const c = H("div", {class: "cell" + (flagged.has(j) ? " flag" : "") + (pg.edited.has(j) ? " edit" : "")}, strip);
+    c.style.background = `color-mix(in srgb, var(--ink) ${Math.round(8 + 82 * a)}%, var(--bg))`;
+    c.onmousemove = e => showTip(`Sentence ${j + 1}<br><span class="k">p =</span> ${v < 1e-4 ? v.toExponential(1) : v.toFixed(4)}${pg.edited.has(j) ? "<br>edited" : ""}${flagged.has(j) ? "<br>flagged by BH" : ""}`, e); c.onmouseleave = hideTip; });
+  $("#pgHc").textContent = isFinite(stat) ? stat.toFixed(2) : "0"; $("#pgTh").textContent = th.toFixed(2);
+  const hit = [...flagged].filter(j => pg.edited.has(j)).length;
+  $("#pgBh").textContent = k ? `${k} (${hit} edited)` : "0";
+  const v = $("#pgVerdict"); v.textContent = rej ? "Edits detected" : "Looks human"; v.className = "verdict " + (rej ? "yes" : "no");
+  const svg = $("#pgPlot"); svg.innerHTML = "";
+  const X = t => 44 + 400 * t, Y = q => 236 - 212 * q;
+  S("rect", {x: X(0), y: Y(1), width: X(0.5) - X(0), height: Y(0) - Y(1), rx: 6, style: "fill:var(--sunken)"}, svg);
+  [0, 0.5, 1].forEach(q => { S("line", {x1: X(0), x2: X(1), y1: Y(q), y2: Y(q), style: "stroke:var(--line)"}, svg); S("text", {x: X(0) - 8, y: Y(q) + 4, "text-anchor": "end"}, svg).textContent = q; });
+  S("line", {x1: X(0), y1: Y(0), x2: X(1), y2: Y(1), style: "stroke:var(--faint);stroke-width:1.5;stroke-dasharray:5 5"}, svg);
+  sorted.forEach((q, i) => { const t = (i + 1) / n; S("circle", {cx: X(t), cy: Y(q), r: n > 32 ? 3.5 : 4.5, style: `fill:${q < t && i < n / 2 ? "var(--accent)" : "var(--faint)"}`}, svg); });
+  S("text", {x: X(0.25), y: 266, "text-anchor": "middle"}, svg).textContent = "HC looks here (i ≤ n/2)";
+  S("text", {x: X(1), y: 266, "text-anchor": "end"}, svg).textContent = "rank i / n";
+  S("text", {x: X(0), y: 12}, svg).textContent = "sorted p-value";
+}
+seg($("#pgN"), [[16, "n = 16"], [32, "n = 32"], [64, "n = 64"]], 32, v => { pg.n = v; const r = $("#pgM"); r.max = v / 2; pg.m = Math.min(pg.m, v / 2); r.value = pg.m; $("#pgMv").textContent = pg.m; pgDraw(); });
+$("#pgM").addEventListener("input", e => { pg.m = +e.target.value; $("#pgMv").textContent = pg.m; pgDraw(); });
+$("#pgMu").addEventListener("input", e => { pg.mu = e.target.value / 10; $("#pgMuv").textContent = pg.mu.toFixed(1); pgRender(); });
+$("#pgNew").onclick = pgDraw;
+pgDraw();
+
+// Panel (a): prompt and example toggles.
+(() => {
+  const PROMPTS = {
+    edit: 'Edit the sentence "<sentence>", please in the text above, to improve the writing. Keep the meaning and about the same length, and keep it one sentence.',
+    light: 'Lightly edit the sentence "<sentence>", please in the text above, to improve the writing, changing only what needs it. Keep the meaning and about the same length, and keep it one sentence.' };
+  const slot = x => H("span", {class: "slot"}, null, x);
+  const showPrompt = k => { const t = $("#promptText"), [pre, post] = PROMPTS[k].split("<sentence>"); t.innerHTML = "";
+    t.append("Text: ", slot("<whole document>"), "\n\n", pre, slot("<sentence>"), post, " Reply with only the edited sentence, followed by a line break."); };
+  seg($("#promptSeg"), [["edit", "edit"], ["light", "light"]], "edit", showPrompt); showPrompt("edit");
+  const EX = {human: ["The goal of this work is clearly ", "formulated by posing the proper", " research questions."],
+              edited: ["The goal of this work is clearly ", "articulated through well-formulated", " research questions."]};
+  const showEx = k => { const [a, c, b] = EX[k], el = $("#exSent"); el.innerHTML = ""; el.append(a, H("span", {class: "chg " + (k === "human" ? "h" : "e")}, null, c), b); };
+  seg($("#exSeg"), [["human", "Human"], ["edited", "GPT-6 Luna"]], "human", showEx); showEx("human");
+})();
+
+// Panel (b): drag the score; p is the share of human calib scores above it (illustration with a normal null).
+(() => {
+  const svg = $("#pvPlot"), lo = -3.5, hi = 4.5, nb = 32, X = v => 10 + 420 * (v - lo) / (hi - lo), base = 140, bars = [];
+  for (let i = 0; i < nb; i++) { const c = lo + (i + 0.5) * (hi - lo) / nb, h = 118 * Math.exp(-c * c / 2);
+    bars.push([c, S("rect", {x: X(lo + i * (hi - lo) / nb) + 1, y: base - h, width: 420 / nb - 2, height: Math.max(h, 1), rx: 2}, svg)]); }
+  S("line", {x1: 10, x2: 430, y1: base, y2: base, style: "stroke:var(--faint)"}, svg);
+  S("text", {x: 10, y: 162}, svg).textContent = "scores of human calib sentences";
+  const mk = S("line", {y1: 8, y2: base, style: "stroke:var(--accent);stroke-width:3;stroke-linecap:round"}, svg);
+  const lab = S("text", {y: 20, style: "fill:var(--accent-ink);font-weight:600"}, svg);
+  const upd = () => { const v = +$("#pvS").value / 100, x = X(v), right = v > 3;
+    bars.forEach(([c, r]) => r.setAttribute("style", `fill:${c > v ? "var(--accent)" : "var(--line)"};opacity:${c > v ? 0.55 : 1}`));
+    mk.setAttribute("x1", x); mk.setAttribute("x2", x); lab.setAttribute("x", right ? x - 8 : x + 8); lab.setAttribute("text-anchor", right ? "end" : "start");
+    lab.textContent = "s(x)"; const pv = Phi_c(v); $("#pvVal").textContent = "p = " + (pv < 0.001 ? pv.toExponential(1) : pv.toFixed(3)); };
+  $("#pvS").addEventListener("input", upd); upd();
+})();
+
+// Sentence-level bars.
+const SENT_ROWS = [
+  ["Ours", [["Ensemble", "Ensemble (ours)"], ["OLMo-3-32B"], ["Llama-3.1-8B"], ["DeBERTa-v3-large"], ["OLMo-3-7B"]]],
+  ["Released detectors", [["EditLens (3B)", "EditLens"], ["GPTTrace v8s (1B)", "GPTTrace v8s"], ["desklib v1.01", "desklib"], ["GPTTrace Ettin-150M", "GPTTrace 150M"]]],
+  ["Zero-shot", [["Binoculars (Llama-3-8B)"], ["Binoculars (Falcon-7B)"], ["Fast-DetectGPT (Llama-3-8B)"], ["Fast-DetectGPT (Falcon-7B)"], ["Log-likelihood (Llama-3-8B)"], ["Log-likelihood (Falcon-7B)"]]],
+];
+const sentState = {f: 1, g: "train"};
+const sentEls = [];
+SENT_ROWS.forEach(([group, rows], gi) => { H("div", {class: "g"}, $("#sentBars"), group);
+  rows.forEach(([key, label]) => {
+    const nm = H("div", {class: "nm" + (key === "Ensemble" ? " ours" : "")}, $("#sentBars"), label || key);
+    const tr = H("div", {class: "track"}, $("#sentBars")), bar = H("div", {class: "bar"}, tr), mk = H("div", {class: "mark"}, tr);
+    bar.style.background = key === "Ensemble" ? "var(--accent)" : gi === 0 ? "var(--member)" : gi === 1 ? "var(--faint)" : "var(--soft)";
+    const val = H("div", {class: "val num"}, $("#sentBars"));
+    [nm, tr, val].forEach(e => { e.onmousemove = ev => { const s = D.sent[key]; showTip(`<b>${label || key}</b><br><span class="k">training editors</span> ${pct(s.train[sentState.f])}<br><span class="k">held-out Qwen</span> ${pct(s.qwen[sentState.f])}<br><span class="k">human (false positives)</span> ${pct(s.human[sentState.f], 2)}`, ev); }; e.onmouseleave = hideTip; });
+    sentEls.push({key, bar, mk, val});
+  }); });
+function sentRender() {
+  const lv = [0.001, 0.01, 0.05][sentState.f], vals = sentEls.map(e => D.sent[e.key][sentState.g][sentState.f]);
+  const max = Math.ceil(Math.max(...vals) * 10 + 0.5) / 10;
+  sentEls.forEach((e, i) => { e.bar.style.width = (100 * vals[i] / max) + "%"; e.mk.style.left = (100 * lv / max) + "%"; e.val.textContent = pct(vals[i]); });
+}
+seg($("#sentFpr"), [[0, "0.1% FPR"], [1, "1% FPR"], [2, "5% FPR"]], 1, v => { sentState.f = v; sentRender(); });
+seg($("#sentEd"), [["train", "Training editors"], ["qwen", "Held-out editor"]], "train", v => { sentState.g = v; sentRender(); });
+sentRender();
+
+// Document-level lines.
+const DOC_SERIES = [
+  {label: "Ours: ensemble + HC", src: "doc", det: "Ensemble", c: "var(--accent)", w: 3.5, dash: "", on: true},
+  {label: "OLMo-3-32B + HC", src: "doc", det: "OLMo-3-32B", c: "var(--member)", w: 2, dash: "", on: false},
+  {label: "EditLens, whole document", src: "whole", det: "EditLens (3B)", c: "var(--muted)", w: 2.5, dash: "", on: true},
+  {label: "EditLens sentences + HC", src: "doc", det: "EditLens (3B)", c: "var(--faint)", w: 2.5, dash: "9 6", on: true},
+  {label: "GPTTrace v8s, whole document", src: "whole", det: "GPTTrace v8s (1B)", c: "var(--faint)", w: 2, dash: "2 6", on: false},
+  {label: "Binoculars + HC", src: "doc", det: "Binoculars (Llama-3-8B)", c: "var(--soft)", w: 2, dash: "1 5", on: false},
+];
+const docState = {g: "train"};
+DOC_SERIES.forEach(s => { const b = H("button", {class: "chip", "aria-pressed": String(s.on)}, $("#docChips"));
+  const sw = S("svg", {width: 28, height: 10}, b); S("line", {x1: 1, y1: 5, x2: 27, y2: 5, style: `stroke:${s.c};stroke-width:${Math.min(s.w, 3)};stroke-dasharray:${s.dash};stroke-linecap:round`}, sw);
+  b.append(s.label); b.onclick = () => { s.on = !s.on; b.setAttribute("aria-pressed", String(s.on)); docRender(); }; });
+function docRender() {
+  const svg = $("#docPlot"); svg.innerHTML = "";
+  const X = t => 56 + 684 * (t - 0.1) / 0.8, Y = v => 340 - 320 * v;
+  [0, 0.25, 0.5, 0.75, 1].forEach(v => { S("line", {x1: X(0.1), x2: X(0.9), y1: Y(v), y2: Y(v), style: `stroke:${v ? "var(--line)" : "var(--faint)"}`}, svg); S("text", {x: X(0.1) - 10, y: Y(v) + 4, "text-anchor": "end", class: "num"}, svg).textContent = (100 * v) + "%"; });
+  THETAS.forEach(t => S("text", {x: X(t), y: 362, "text-anchor": "middle", class: "num"}, svg).textContent = t.toFixed(1));
+  S("text", {x: X(0.5), y: 392, "text-anchor": "middle"}, svg).textContent = "sparsity θ: higher means fewer edited sentences";
+  S("line", {x1: X(0.1), x2: X(0.9), y1: Y(0.05), y2: Y(0.05), style: "stroke:var(--faint);stroke-width:1.5;stroke-dasharray:2 6;stroke-linecap:round"}, svg);
+  S("text", {x: X(0.1) + 8, y: Y(0.05) - 8}, svg).textContent = "level 5%";
+  const vis = DOC_SERIES.filter(s => s.on);
+  vis.slice().reverse().forEach(s => { const v = D[s.src][s.det][docState.g];
+    S("polyline", {points: v.map((y, i) => `${X(THETAS[i])},${Y(y)}`).join(" "), fill: "none", style: `stroke:${s.c};stroke-width:${s.w};stroke-dasharray:${s.dash};stroke-linejoin:round;stroke-linecap:round`}, svg);
+    if (s.det === "Ensemble") v.forEach((y, i) => S("circle", {cx: X(THETAS[i]), cy: Y(y), r: 5, style: `fill:${s.c};stroke:var(--bg);stroke-width:2`}, svg)); });
+  const cross = S("line", {y1: Y(1), y2: Y(0), style: "stroke:var(--ink);stroke-width:1;opacity:0"}, svg);
+  const hit = S("rect", {x: X(0.1) - 20, y: 0, width: X(0.9) - X(0.1) + 40, height: 350, fill: "transparent"}, svg);
+  hit.onmousemove = ev => { const r = svg.getBoundingClientRect(), x = (ev.clientX - r.left) * 760 / r.width;
+    const i = Math.max(0, Math.min(8, Math.round((x - 56) / 684 * 8))); cross.setAttribute("x1", X(THETAS[i])); cross.setAttribute("x2", X(THETAS[i])); cross.style.opacity = 0.35;
+    showTip(`<b>θ = ${THETAS[i].toFixed(1)}</b><br>` + vis.map(s => `<span class="k">${s.label}</span> ${pct(D[s.src][s.det][docState.g][i], 0)}`).join("<br>"), ev); };
+  hit.onmouseleave = () => { cross.style.opacity = 0; hideTip(); };
+}
+seg($("#docEd"), [["train", "Training editors"], ["qwen", "Held-out editor"]], "train", v => { docState.g = v; docRender(); });
+docRender();
+
+// What makes an edit visible.
+(() => {
+  const svg = $("#strPlot"), labels = ["≤0.05", "0.1", "0.2", "0.3", "0.5", "1", ">1"], n = D.strength.length;
+  const X = i => 40 + i * 48, Y = v => 210 - 300 * v;
+  [0, 0.2, 0.4, 0.6].forEach(v => { S("line", {x1: 36, x2: 370, y1: Y(v), y2: Y(v), style: `stroke:${v ? "var(--line)" : "var(--faint)"}`}, svg); S("text", {x: 30, y: Y(v) + 4, "text-anchor": "end", class: "num"}, svg).textContent = (100 * v) + "%"; });
+  D.strength.forEach(([bin, v, cnt], i) => { const b = S("rect", {x: X(i) + 4, y: Y(v), width: 40, height: Y(0) - Y(v), rx: 4, style: "fill:var(--ink)"}, svg);
+    S("text", {x: X(i) + 24, y: 230, "text-anchor": "middle"}, svg).textContent = labels[i];
+    b.onmousemove = e => showTip(`<b>r in ${bin}</b><br>${pct(v)} caught<br><span class="k">${cnt.toLocaleString()} edited sentences</span>`, e); b.onmouseleave = hideTip; });
+  S("text", {x: 205, y: 252, "text-anchor": "middle"}, svg).textContent = "edit rate r (share of words changed), bin upper edge";
+  const eds = Object.entries(D.editors).filter(([k]) => k !== "human").sort((a, b) => b[1] - a[1]);
+  const name = k => k.replace("-light", ", light").replace("qwen3.5-122b", "Qwen3.5").replace("gpt-oss-120b", "gpt-oss-120b").replace("claude-haiku-5.5", "Claude Haiku 5.5").replace("gemma-4-31b", "Gemma 4 31B").replace("glm-5.3-flash", "GLM-5.3 Flash").replace("gpt-6-luna", "GPT-6 Luna");
+  eds.forEach(([k, v]) => { const q = k.startsWith("qwen"); H("div", {class: "nm"}, $("#edBars"), name(k)).style.fontSize = "14px";
+    const tr = H("div", {class: "track", style: "height:16px"}, $("#edBars")), b = H("div", {class: "bar"}, tr);
+    b.style.width = (100 * v / 0.7) + "%"; b.style.background = q ? "var(--accent)" : "var(--ink)";
+    H("div", {class: "val num", style: "font-size:14px"}, $("#edBars"), pct(v, 0)); });
+})();
+
+// Public benchmarks dot plot.
+const BM_MARKS = [["Ours", "var(--accent)", "circle"], ["EditLens", "var(--muted)", "square"], ["MELD", "var(--faint)", "diamond"], ["GPTTrace v8s", "var(--soft)", "triangle"]];
+function shape(kind, x, y, r, fill, parent) {
+  const st = `fill:${fill};stroke:var(--bg);stroke-width:2`;
+  if (kind === "circle") return S("circle", {cx: x, cy: y, r: r + 1, style: st}, parent);
+  if (kind === "square") return S("rect", {x: x - r, y: y - r, width: 2 * r, height: 2 * r, rx: 2, style: st}, parent);
+  if (kind === "diamond") return S("path", {d: `M${x} ${y - r - 2}L${x + r + 2} ${y}L${x} ${y + r + 2}L${x - r - 2} ${y}Z`, style: st}, parent);
+  return S("path", {d: `M${x} ${y - r - 2}L${x + r + 2} ${y + r}L${x - r - 2} ${y + r}Z`, style: st}, parent);
+}
+BM_MARKS.forEach(([l, c, k]) => { const b = H("span", {class: "chip", "aria-pressed": "true", style: "cursor:default"}, $("#bmKey")); const sw = S("svg", {width: 16, height: 16}, b); shape(k, 8, 8, 5, c, sw); b.append(l); });
+(() => {
+  const svg = $("#bmPlot"), X = v => 250 + 490 * v, rowY = i => 30 + i * 48;
+  [0, 0.25, 0.5, 0.75, 1].forEach(v => { S("line", {x1: X(v), x2: X(v), y1: 10, y2: rowY(6) + 20, style: "stroke:var(--line)"}, svg); S("text", {x: X(v), y: rowY(6) + 44, "text-anchor": "middle", class: "num"}, svg).textContent = (100 * v) + "%"; });
+  BENCH.forEach(([name, what, vals], i) => { const y = rowY(i);
+    S("line", {x1: X(Math.min(...vals)), x2: X(Math.max(...vals)), y1: y, y2: y, style: "stroke:var(--line);stroke-width:6;stroke-linecap:round"}, svg);
+    const t = S("text", {x: 0, y: y - 2, style: "fill:var(--ink);font-size:15px;font-weight:600"}, svg); t.textContent = name;
+    S("text", {x: 0, y: y + 15, style: "font-size:12.5px"}, svg).textContent = what;
+    const best = Math.max(...vals);
+    [3, 2, 1, 0].forEach(j => { const [l, c, k] = BM_MARKS[j], m = shape(k, X(vals[j]), y, j === 0 ? 7 : 6, c, svg);
+      m.onmousemove = e => showTip(`<b>${name}</b><br>` + BM_MARKS.map(([ll], jj) => `<span class="k">${ll}</span> ${vals[jj].toFixed(2)}${vals[jj] === best ? " (best)" : ""}`).join("<br>"), e); m.onmouseleave = hideTip; });
+  });
+})();
+
+// Edited or fully generated: label shares.
+function mxRender(g) {
+  const t = $("#mx"); t.innerHTML = "";
+  const hr = H("tr", {}, t); ["True document", "Human", "Fully AI", "AI-edited"].forEach(h => H("th", {}, hr, h));
+  [...MX.fixed, ...MX[g]].forEach(([name, vals, ok]) => { const r = H("tr", {}, t); H("td", {}, r, name);
+    vals.forEach((v, j) => { const c = H("td", {class: j === ok ? "ok" : ""}, r, v.toFixed(3));
+      c.style.background = `color-mix(in srgb, var(--accent) ${Math.round(70 * v)}%, var(--sunken))`; if (v > 0.6) c.style.color = "var(--on-accent)"; }); });
+}
+seg($("#mxEd"), [["train", "Training editors"], ["qwen", "Held-out editor"]], "train", mxRender);
+mxRender("train");
+
+// Training on AI-edited text: perplexity vs Δ.
+const LM_ARMS = [   // key, label, color, filled, label offset [dx, dy, anchor] without / with weighting (null: hidden)
+  ["base", "Base model", "var(--soft)", true, [10, 4, "start"], null], ["fresh", "Fresh human text", "var(--faint)", true, [-12, 4, "end"], null],
+  ["human", "Human text", "var(--ink)", true, [0, 24, "middle"], [-12, 4, "end"]], ["h1", "Human, 1 pass", "var(--ink)", true, [10, 22, "start"], [12, 4, "start"]],
+  ["mix", "Mixture: some edited", "var(--accent)", true, [-12, -12, "end"], [-12, -12, "end"]], ["all", "All edited, 1 pass", "var(--accent)", true, [12, 4, "start"], [12, 4, "start"]],
+  ["mixS", "1 − r", "var(--accent)", false, null, [12, 4, "start"]], ["mixM", "dropped", "var(--accent)", false, null, [0, 26, "middle"]],
+  ["allS", "1 − r", "var(--accent)", false, null, [-12, 4, "end"]], ["allM", "dropped", "var(--accent)", false, null, [12, 4, "start"]],
+];
+const lmState = {m: "Pythia-6.9B", w: false};
+function lmRender() {
+  const svg = $("#lmPlot"); svg.innerHTML = ""; const d = LM[lmState.m];
+  const xs = Object.values(d).map(v => v[0]), x0 = Math.floor(Math.min(...xs) * 2) / 2 - 0.25, x1 = Math.ceil(Math.max(...xs) * 2) / 2 + 0.25;
+  const X = v => 60 + 680 * (v - x0) / (x1 - x0), Y = v => 360 - 340 * (v - 0.17) / (0.40 - 0.17);
+  for (let v = 0.2; v <= 0.401; v += 0.05) { S("line", {x1: X(x0), x2: X(x1), y1: Y(v), y2: Y(v), style: "stroke:var(--line)"}, svg); S("text", {x: X(x0) - 10, y: Y(v) + 4, "text-anchor": "end", class: "num"}, svg).textContent = v.toFixed(2); }
+  for (let v = Math.ceil(x0 * 2) / 2; v <= x1; v += 0.5) S("text", {x: X(v), y: 382, "text-anchor": "middle", class: "num"}, svg).textContent = v.toFixed(1);
+  S("text", {x: X((x0 + x1) / 2), y: 412, "text-anchor": "middle"}, svg).textContent = "perplexity on human test text (lower is better)";
+  S("text", {x: X(x0), y: 10}, svg).textContent = "Δ: preference for AI-edited text";
+  S("defs", {}, svg).innerHTML = '<marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10Z" style="fill:var(--accent)"/></marker>';
+  [["human", "mix"], ["h1", "all"]].forEach(([a, b]) => S("line", {x1: X(d[a][0]), y1: Y(d[a][1]), x2: X(d[b][0]), y2: Y(d[b][1]), "marker-end": "url(#ah)", style: "stroke:var(--accent);stroke-width:2;opacity:.6;stroke-dasharray:4 4"}, svg));
+  LM_ARMS.forEach(([k, label, c, main, p0, p1]) => { const pos = lmState.w ? p1 : p0; if (!pos) return;
+    const [dx, dy, anchor] = pos, [px, dl] = d[k], g = S("g", {}, svg);
+    S("circle", {cx: X(px), cy: Y(dl), r: main ? 7 : 6, style: main ? `fill:${c};stroke:var(--bg);stroke-width:2` : `fill:var(--bg);stroke:${c};stroke-width:2.5`}, g);
+    S("text", {x: X(px) + dx, y: Y(dl) + dy, "text-anchor": anchor, style: `fill:var(--ink);font-size:13px;font-weight:${main ? 600 : 400}`}, g).textContent = label;
+    g.onmousemove = e => showTip(`<b>${label}</b><br><span class="k">perplexity</span> ${px.toFixed(2)}<br><span class="k">Δ</span> ${dl.toFixed(3)}`, e); g.onmouseleave = hideTip; });
+}
+seg($("#lmModel"), Object.keys(LM).map(k => [k, k]), "Pythia-6.9B", v => { lmState.m = v; lmRender(); });
+$("#lmW").onclick = () => { lmState.w = !lmState.w; $("#lmW").setAttribute("aria-pressed", String(lmState.w)); lmRender(); };
+lmRender();
+</script>
+</body>
+</html>
