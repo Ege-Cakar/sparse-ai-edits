@@ -53,6 +53,7 @@ label.rng { display: inline-flex; align-items: center; gap: 12px; font-size: 15p
 input[type=range] { accent-color: var(--accent); width: 180px; }
 .card { border: 1px solid var(--line); border-radius: 20px; padding: 24px; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+.h0 { grid-template-columns: 1fr 1.25fr; align-items: center; }
 .caption { color: var(--muted); font-size: 14px; margin-top: 12px; }
 svg text { font-family: inherit; fill: var(--muted); font-size: 13px; }
 #pgPlot { display: block; max-width: 520px; margin: 0 auto; }
@@ -92,7 +93,11 @@ svg text { font-family: inherit; fill: var(--muted); font-size: 13px; }
 .tip .k { color: var(--muted); }
 /* hero */
 .hero { display: grid; grid-template-columns: 1.25fr 1fr; gap: 56px; align-items: center; padding-top: 64px; }
-.hero .sub { color: var(--muted); font-size: 21px; margin: 20px 0 36px; max-width: 520px; }
+.hero .sub { color: var(--muted); font-size: 21px; margin: 20px 0 24px; max-width: 520px; }
+.cta { display: flex; flex-wrap: wrap; gap: 12px; margin: 0 0 36px; }
+.btn-link { display: inline-flex; align-items: center; background: var(--ink); color: var(--bg); font-weight: 600; font-size: 15px; padding: 11px 18px; border-radius: 999px; }
+.btn-link:hover { text-decoration: none; opacity: .88; }
+.btn-link.ghost { background: transparent; color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--line); }
 .doc { border: 1px solid var(--line); border-radius: 24px; padding: 32px; display: flex; flex-direction: column; gap: 13px; }
 .doc .ln { height: 10px; border-radius: 5px; background: var(--line); transition: background .35s ease-out, transform .35s ease-out; transform-origin: left; }
 .doc .ln.on { background: var(--accent); }
@@ -156,6 +161,8 @@ footer { max-width: 1080px; margin: 0 auto; padding: 64px 24px 48px; display: fl
   section { padding-top: 72px; }
 }
 @media (max-width: 480px) {
+  .flow .box { width: 140px; padding: 10px 12px; }
+  .flow .arrow { white-space: normal; width: 64px; }
   main, nav, footer { padding-left: 16px; padding-right: 16px; }
   .steps { grid-template-columns: 1fr; }
   .big .v { font-size: 44px; }
@@ -164,13 +171,14 @@ footer { max-width: 1080px; margin: 0 auto; padding: 64px 24px 48px; display: fl
 </style>
 </head>
 <body>
-<nav><b>Who Touched My Sentence?</b><span class="links"><a href="https://github.com/Ege-Cakar/sparse-ai-edits/blob/main/report/report.pdf">Paper</a><a href="https://github.com/Ege-Cakar/sparse-ai-edits">Code</a></span></nav>
+<nav><b>Who Touched My Sentence?</b><span class="links"><a href="https://github.com/Ege-Cakar/sparse-ai-edits/blob/main/report/report.pdf">Paper</a><a href="https://github.com/Ege-Cakar/sparse-ai-edits">GitHub</a></span></nav>
 <main>
 
 <section class="hero" aria-label="Overview">
   <div>
     <h1>Who touched my sentence?</h1>
     <p class="sub">Finding a few AI-edited sentences in a human document, with sparse inference.</p>
+    <div class="cta"><a class="btn-link" href="https://github.com/Ege-Cakar/sparse-ai-edits">GitHub repository</a><a class="btn-link ghost" href="https://github.com/Ege-Cakar/sparse-ai-edits/blob/main/report/report.pdf">Paper (PDF)</a></div>
     <label class="rng">Sparsity θ <input id="theta" type="range" min="1" max="9" step="1" value="1" aria-label="Sparsity theta"> <b class="num" id="thetaVal">0.1</b></label>
     <div class="big">
       <div><div class="v ours num" id="heroOurs">92%</div><div class="l">flagged by our test</div></div>
@@ -333,7 +341,7 @@ footer { max-width: 1080px; margin: 0 auto; padding: 64px 24px 48px; display: fl
 <section aria-labelledby="h0-h">
   <h2 id="h0-h">Edited, or fully generated?</h2>
   <p class="lede">A second test of “every sentence is AI”, with the same detectors.</p>
-  <div class="grid2" style="grid-template-columns:1fr 1.25fr;align-items:center">
+  <div class="grid2 h0">
     <div class="flow">
       <div class="row"><div class="box">Every sentence human?</div><span class="arrow">not rejected →</span><span class="pill">Human</span></div>
       <div class="row"><span class="arrow" style="padding-left:16px">↓ rejected</span></div>
